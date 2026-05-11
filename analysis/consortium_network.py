@@ -38,6 +38,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from analysis.holdings import compute_current_holdings
 from backend.db.connection import SessionLocal
 from backend.models.transaction import Transaction
 
@@ -176,7 +177,8 @@ def methodology_notes() -> list[str]:
     return [
         "Co-investor = appears on the same side of the same transaction. "
         "Two parties holding the same asset via separate transactions are "
-        "not yet linked.",
+        "not linked here — see /capital-flows/co-ownership-network "
+        "(holdings-based) for that case.",
         "Strategic operators (is_strategic_operator=True) ARE included — "
         "consortium analysis cares about partnerships regardless of fund "
         "vintage.",
@@ -186,6 +188,116 @@ def methodology_notes() -> list[str]:
         "(use sparingly — Layer γ honesty discipline).",
         "All transaction states feed the network — abandoned and pulled "
         "deals are signal too (who teamed up on a process even if it died).",
+    ]
+
+
+# ── Co-ownership network (holdings-based) ───────────────────────────────
+
+
+@dataclass
+class CoOwnershipEdge:
+    """Two parties currently holding stakes in the same airport."""
+
+    party_a: str
+    party_b: str
+    shared_airport_count: int
+    shared_airports: list[str]           # IATA codes
+    party_a_stake_pcts: list[float]      # parallel to shared_airports
+    party_b_stake_pcts: list[float]      # parallel to shared_airports
+
+
+def compute_co_ownership_network(
+    db: Session,
+    *,
+    include_unidentified: bool = False,
+) -> tuple[list[ConsortiumNode], list[CoOwnershipEdge]]:
+    """
+    Build the co-ownership graph from CURRENT holdings (reconciled from
+    transactions via analysis.holdings). Two parties share an edge if they
+    both currently hold a position in the same airport, regardless of
+    whether they got there via the same transaction or separate ones.
+
+    This is the "fix" for the β.4 gap surfaced by the user: when Fund A
+    buys 50% of Airport X in 2018 and Fund B buys 30% of Airport X in
+    2022, our transaction-based network shows no edge between them
+    (different deals). Holdings-based view shows the edge because they
+    currently both hold positions in X.
+    """
+    holdings = compute_current_holdings(
+        db, include_unidentified=include_unidentified
+    )
+    # Index: airport_id → list of holdings
+    by_airport: dict = defaultdict(list)
+    for h in holdings:
+        by_airport[h.airport_id].append(h)
+
+    # Build nodes (one per distinct holder)
+    node_data: dict[str, dict] = {}
+    for h in holdings:
+        n = node_data.setdefault(h.holder_name, {
+            "airports": set(), "is_strategic_operator": False,
+        })
+        if h.airport_iata:
+            n["airports"].add(h.airport_iata)
+        n["is_strategic_operator"] = n["is_strategic_operator"] or h.is_strategic_operator
+
+    nodes = [
+        ConsortiumNode(
+            name=name,
+            deal_count=len(d["airports"]),  # repurpose: airports held, not deals
+            sides_seen=["holder"],
+            is_strategic_operator=d["is_strategic_operator"],
+        )
+        for name, d in sorted(node_data.items())
+    ]
+
+    # Build co-ownership edges
+    edge_index: dict[tuple[str, str], CoOwnershipEdge] = {}
+    for _airport_id, hs in by_airport.items():
+        if len(hs) < 2:
+            continue
+        for h_a, h_b in combinations(hs, 2):
+            a, b = sorted([h_a.holder_name, h_b.holder_name])
+            if a == b:
+                continue
+            stake_a = h_a.current_stake_pct if h_a.holder_name == a else h_b.current_stake_pct
+            stake_b = h_b.current_stake_pct if h_b.holder_name == b else h_a.current_stake_pct
+            iata = h_a.airport_iata or h_b.airport_iata or "?"
+            key = (a, b)
+            if key in edge_index:
+                e = edge_index[key]
+                e.shared_airport_count += 1
+                e.shared_airports.append(iata)
+                e.party_a_stake_pcts.append(stake_a)
+                e.party_b_stake_pcts.append(stake_b)
+            else:
+                edge_index[key] = CoOwnershipEdge(
+                    party_a=a, party_b=b,
+                    shared_airport_count=1,
+                    shared_airports=[iata],
+                    party_a_stake_pcts=[stake_a],
+                    party_b_stake_pcts=[stake_b],
+                )
+
+    edges = sorted(edge_index.values(), key=lambda e: -e.shared_airport_count)
+    return nodes, edges
+
+
+def co_ownership_methodology_notes() -> list[str]:
+    return [
+        "Edges form between any two parties who CURRENTLY hold positions "
+        "in the same airport — even if they got there via separate "
+        "transactions years apart.",
+        "Holdings are reconciled from CLOSED transactions (see "
+        "analysis/holdings.py). Signed-but-not-closed deals are not yet "
+        "reflected.",
+        "Edge weight = number of airports where the pair both hold. "
+        "Stakes are parallel arrays — party_a_stake_pcts[i] is party_a's "
+        "stake in shared_airports[i].",
+        "Identifier-status discipline: rumoured/suspected parties "
+        "excluded by default (Layer γ).",
+        "v1 limitation: gross stake math inherited from holdings — see "
+        "analysis/holdings.py methodology notes.",
     ]
 
 
