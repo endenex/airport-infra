@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import airports, ingestion, records, review
+from backend.api import airports, ingestion, records, review, validations
 from backend.config import settings
 
 app = FastAPI(
@@ -36,3 +36,4 @@ app.include_router(airports.router)
 app.include_router(records.router)
 app.include_router(ingestion.router)
 app.include_router(review.router)
+app.include_router(validations.router)
