@@ -181,6 +181,7 @@ class Transaction(BaseModel):
     buyer_entities: list[dict[str, Any]] | None
     seller_entities: list[dict[str, Any]] | None
     rival_bids: list[dict[str, Any]] | None
+    continuing_holders: list[dict[str, Any]] | None
     source_url: str
     source_document_id: str | None
     retrieved_at: datetime
@@ -216,6 +217,7 @@ class TransactionCreate(BaseModel):
     buyer_entities: list[TransactionParty] = Field(default_factory=list)
     seller_entities: list[TransactionParty] = Field(default_factory=list)
     rival_bids: list[RivalBid] = Field(default_factory=list)
+    continuing_holders: list[TransactionParty] = Field(default_factory=list)
     source_url: str = Field(min_length=1)
     source_document_id: str | None = None
     notes: str | None = None

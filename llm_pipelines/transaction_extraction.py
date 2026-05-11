@@ -88,6 +88,14 @@ Return ONLY a JSON object (no prose, no markdown fences) with this exact schema:
         "source_quote": "<verbatim sentence from the doc>"
       }
     ],
+    "continuing_holders": [
+      {
+        "name": "<entity name>",
+        "identifier_status": "identified" | "suspected" | "unknown",
+        "post_transaction_stake_pct": <number 0-100> | null,
+        "source_quote": "<verbatim sentence from the doc>"
+      }
+    ],
     "overall_extraction_confidence": <float 0.0-1.0>,
     "evidence_summary": "<two-sentence summary of what the doc actually says>"
   }
@@ -97,20 +105,35 @@ Rules — these are non-negotiable:
 
 1. **State of the transaction.** "closed" only if the document confirms completion (signed and closed). "abandoned"/"pulled"/"postponed" only with explicit confirmation. "rumored" if the entire deal is press-leak only.
 
-2. **Party attribution.** A party's identifier_status MUST reflect document tone:
-   - "identified": document names them as a confirmed party (buyer, seller, lender)
+2. **Party attribution — the stake-change rule (this is the most important rule).**
+
+   A party is a BUYER if and only if their ownership stake INCREASED through this transaction. The `equity_stake_pct` you record is the AMOUNT THEY ACQUIRED in this transaction, NOT the resulting total holding.
+
+   A party is a SELLER if and only if their ownership stake DECREASED. Record the amount sold (not the residual).
+
+   A party whose ownership stake did NOT change is a CONTINUING HOLDER. List them in `continuing_holders`, NOT in buyer_entities or seller_entities. They did not transact in this deal — they just continue to hold a position.
+
+   **Common trap.** "X acquires 50.01% in Airport Y alongside Z which holds the remaining 49.99%" — this means:
+     - X is a buyer (acquired 50.01%)
+     - Z is EITHER the seller (if Z previously held 100% and sold half to X) OR a continuing holder (if Z already held 49.99% independently before the deal)
+     - If the document does NOT explicitly state Z's pre-transaction position, do NOT guess. Put Z in `continuing_holders` with `identifier_status="suspected"` and note the ambiguity in `evidence_summary`.
+
+   **Another trap.** A press release saying "Sponsor X has appointed advisors to explore a sale" lists no buyer at all yet — this is state="rumored" or "postponed" with empty buyer_entities.
+
+3. **identifier_status** within any party entry MUST reflect document tone:
+   - "identified": document names them as a confirmed party in this transaction
    - "suspected": document hedges ("rumoured", "reportedly", "according to sources", "said to be among interested parties")
    - "unknown": document references an unnamed party ("a sovereign wealth fund", "two unnamed bidders")
 
-3. **Price confidence.** "confirmed" requires the document to state the number explicitly as fact. "rumored" if the number comes from press leaks the doc cites. "range" if the doc gives "£2-3bn" or similar. "unknown" if no number stated.
+4. **Price confidence.** "confirmed" requires the document to state the number explicitly as fact. "rumored" if the number comes from press leaks the doc cites. "range" if the doc gives "£2-3bn" or similar. "unknown" if no number stated.
 
-4. **Rival bidders.** A rival_bid entry is a party that was at the table but did not win — losing bids, withdrawn bids, shortlisted-but-not-selected. ONLY include rival bidders that the document actually names or hedges; never invent.
+5. **Rival bidders.** A rival_bid entry is a party that was at the table but did not win — losing bids, withdrawn bids, shortlisted-but-not-selected. ONLY include rival bidders the document actually names or hedges; never invent.
 
-5. **No inference, no synthesis.** Do not compute enterprise_value from stake_percent × equity_value. Do not name a "likely sponsor" the document doesn't mention.
+6. **No inference, no synthesis.** Do not compute enterprise_value from stake_percent × equity_value. Do not name a "likely sponsor" the document doesn't mention. If you don't have an explicit basis from the document, leave the field null or the list empty.
 
-6. **evidence_summary** is two sentences max. State what the document says, not your interpretation.
+7. **evidence_summary** is two sentences max. State what the document says, not your interpretation. Call out any ambiguity that affected your classification (e.g. "Document does not state whether GIP was a pre-existing holder or sold down to VINCI, so GIP is treated as a continuing holder with suspected status.").
 
-7. **overall_extraction_confidence** reflects your confidence the document supports the extracted transaction shape. High (0.9+) for explicit press releases with all key fields; moderate (0.7-0.9) for partial coverage; low (<0.7) for ambiguous or press-leak-only documents.
+8. **overall_extraction_confidence** reflects your confidence the document supports the extracted transaction shape. High (0.9+) for explicit press releases with all key fields. Moderate (0.7-0.9) for partial coverage or genuine ambiguity in party roles. Low (<0.7) for press-leak-only or significantly ambiguous documents. If you applied the "continuing holder under ambiguity" rule above, that's a moderate-confidence signal — set <= 0.85.
 """
 
 
@@ -178,7 +201,10 @@ def _coerce_party_list(raw: list | None) -> list[dict] | None:
 
 
 class TransactionExtractionPipeline:
-    prompt_version = "1.0"
+    # v1.1: tightened buyer/seller semantics via explicit "stake-change rule",
+    # added continuing_holders bucket so existing co-investors aren't
+    # mis-classified as buyers. See commit log + Edinburgh re-run for context.
+    prompt_version = "1.1"
     temperature = 0.0
     max_tokens = 4096
 
@@ -285,6 +311,7 @@ class TransactionExtractionPipeline:
             buyer_entities=_coerce_party_list(txn.get("buyer_entities")),
             seller_entities=_coerce_party_list(txn.get("seller_entities")),
             rival_bids=_coerce_party_list(txn.get("rival_bids")),
+            continuing_holders=_coerce_party_list(txn.get("continuing_holders")),
             source_url=source_url,
             source_document_id=source_document_id,
             retrieved_at=datetime.now(timezone.utc),

@@ -121,7 +121,7 @@ class TestResolveAirportId:
 
 
 def _stub_extraction(**overrides) -> TransactionExtraction:
-    """A canonical extraction shape mirroring the VINCI/Edinburgh real run."""
+    """A canonical extraction shape mirroring the VINCI/Edinburgh v1.1 run."""
     parsed = {
         "asset_name": "Edinburgh Airport (50.01% majority stake)",
         "iata_hint": "EDI",
@@ -135,21 +135,29 @@ def _stub_extraction(**overrides) -> TransactionExtraction:
         "price_information_confidence": "confirmed",
         "buyer_entities": [
             {"name": "VINCI Airports", "role": "lead",
-             "identifier_status": "identified",
+             "identifier_status": "identified", "equity_stake_pct": 50.01,
              "source_quote": "VINCI Airports finalised the acquisition"},
         ],
-        "seller_entities": [
-            {"name": "GIP Edinburgh Airport Holdings", "role": "lead",
-             "identifier_status": "identified", "equity_stake_pct": 50.01},
-        ],
+        # v1.1: when document doesn't explicitly name the seller, this stays
+        # empty (model used to fabricate a "co-investor buyer" here).
+        "seller_entities": [],
         "rival_bids": [],
-        "overall_extraction_confidence": 0.95,
-        "evidence_summary": "VINCI acquired 50.01% of Edinburgh Airport for £1.27bn",
+        "continuing_holders": [
+            {"name": "Global Infrastructure Partners (GIP)",
+             "identifier_status": "identified",
+             "post_transaction_stake_pct": 49.99,
+             "source_quote": "GIP, which has owned the airport since 2012"},
+        ],
+        "overall_extraction_confidence": 0.92,
+        "evidence_summary": (
+            "VINCI signed an agreement to acquire 50.01% of Edinburgh Airport "
+            "for £1.27bn. GIP retains 49.99% as a continuing holder."
+        ),
     }
     parsed.update(overrides.get("parsed", {}))
     return TransactionExtraction(
         parsed=parsed,
-        overall_confidence=overrides.get("overall_confidence", 0.95),
+        overall_confidence=overrides.get("overall_confidence", 0.92),
         evidence_summary=parsed["evidence_summary"],
         raw_response={"transaction": parsed},
     )
@@ -175,9 +183,37 @@ class TestPersist:
         assert row.price_information_confidence == "confirmed"
         assert row.source_url == "https://example.com/vinci.html"
         assert row.methodology_version_id is not None
-        # Notes carry the overall_confidence + evidence_summary
-        assert "0.95" in (row.notes or "")
+        # Notes carry prompt_version + overall_confidence + evidence_summary
+        assert "v1.1" in (row.notes or "")
+        assert "0.92" in (row.notes or "")
         assert "Edinburgh" in (row.notes or "")
+
+    def test_v11_separates_continuing_holders_from_buyers(self, api_db, edi):
+        """
+        v1.1 stake-change rule: a party whose stake didn't change is a
+        continuing_holder, NOT a buyer. The Edinburgh real-world case was
+        the canonical bug — GIP was getting listed as a buyer with
+        equity_stake_pct=49.99 (their post-tx holding) when they didn't
+        actually acquire anything in the transaction. Lock that here.
+        """
+        pipeline = TransactionExtractionPipeline(client=MagicMock())
+        row = pipeline.persist(
+            api_db, _stub_extraction(),
+            source_url="https://example.com/vinci.html",
+            source_document_id="doc",
+        )
+        # Only the actual buyer (VINCI) ends up in buyer_entities
+        assert len(row.buyer_entities or []) == 1
+        assert row.buyer_entities[0]["name"] == "VINCI Airports"
+        # GIP lives in continuing_holders, not buyers
+        assert row.continuing_holders is not None
+        assert any("GIP" in c["name"] for c in row.continuing_holders)
+        # And nobody is in buyer_entities with GIP's name
+        assert not any("GIP" in b["name"] for b in row.buyer_entities or [])
+
+    def test_prompt_version_is_v1_1(self):
+        """Bump bumped — older v1.0 records are still in the DB but new ones say 1.1."""
+        assert TransactionExtractionPipeline.prompt_version == "1.1"
 
     def test_falls_back_to_rumored_on_invalid_state(self, api_db, edi):
         """LLM hallucinating an out-of-lexicon state must not crash persistence."""

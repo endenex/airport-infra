@@ -164,6 +164,7 @@ def create_transaction(
         buyer_entities=[p.model_dump() for p in body.buyer_entities] or None,
         seller_entities=[p.model_dump() for p in body.seller_entities] or None,
         rival_bids=[p.model_dump() for p in body.rival_bids] or None,
+        continuing_holders=[p.model_dump() for p in body.continuing_holders] or None,
         source_url=body.source_url,
         source_document_id=body.source_document_id,
         retrieved_at=datetime.now(timezone.utc),

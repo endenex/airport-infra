@@ -74,21 +74,32 @@ class Transaction(Base):
     reason_for_failure_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Parties (JSONB lists of structured entries) ──────────────────────
-    # Each entry follows the shape:
+    # buyer_entities / seller_entities: parties whose stake INCREASED /
+    #   DECREASED through this transaction. equity_stake_pct is the AMOUNT
+    #   TRANSACTED (acquired or sold), not the resulting holding.
+    # continuing_holders: parties whose stake did NOT change through this
+    #   transaction — mentioned in the document for context but did not
+    #   actually transact. (Added in prompt v1.1 to fix the buyer-vs-
+    #   continuing-holder confusion that surfaced in real-world docs.)
+    # rival_bids: parties that bid but did not win — losers, withdrawals,
+    #   shortlisted but not selected.
+    #
+    # Each entry follows:
     #   {"name": str,
     #    "role": "lead" | "co_investor" | "lp" | "advisor",
     #    "identifier_status": "identified" | "suspected" | "unknown",
     #    "equity_stake_pct": float | null,
     #    "is_strategic_operator": bool | null,
     #    "fund_name": str | null,
-    #    "fund_vintage": int | null,  (e.g. 2018 for MIP IV)
+    #    "fund_vintage": int | null,
     #    "source_quote": str | null}
-    # rival_bids additionally carries {"bid_price": float | null,
-    #   "price_confidence": "confirmed" | "rumored" | "range",
-    #   "outcome": "lost" | "withdrew" | "shortlisted"}
+    # rival_bids additionally: {"bid_price", "price_confidence", "outcome"}
+    # continuing_holders: {"name", "identifier_status",
+    #   "post_transaction_stake_pct", "source_quote"}
     buyer_entities: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     seller_entities: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     rival_bids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    continuing_holders: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # ── Provenance ───────────────────────────────────────────────────────
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
