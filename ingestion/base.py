@@ -118,12 +118,18 @@ class IngestorBase(ABC):
             records = self.parse(raw_data)
             result.records_fetched = len(records)
 
+            seen_ids: set[str] = set()
             for raw in records:
                 rec_id = self.record_id(raw)
+                # Check in-memory first: db.get() misses pending (unflushed) objects
+                if rec_id in seen_ids:
+                    result.records_skipped += 1
+                    continue
                 existing = db.get(DataRecord, rec_id)
                 if existing is not None:
                     result.records_skipped += 1
                     continue
+                seen_ids.add(rec_id)
 
                 record = DataRecord(
                     id=rec_id,

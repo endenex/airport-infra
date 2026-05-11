@@ -19,6 +19,8 @@ class Airport(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     iata_code: Mapped[str | None] = mapped_column(String(3), unique=True, nullable=True)
     icao_code: Mapped[str | None] = mapped_column(String(4), unique=True, nullable=True)
+    # OurAirports primary identifier — ICAO, FAA, or local code (up to 7 chars)
+    ourairports_ident: Mapped[str | None] = mapped_column(String(10), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
     city: Mapped[str | None] = mapped_column(String(255), nullable=True)
