@@ -93,9 +93,12 @@ def api_db(engine):
     # Tables we wipe between API tests — the "data" tables that hold
     # per-test fixtures. methodology_versions and assumption_sets are
     # seeded once in db_session and are FK targets, so leave them alone.
+    # Order matters: child rows wiped before parents (FK constraints active
+    # in SQLite via the PRAGMA foreign_keys=ON in the engine fixture).
     DATA_TABLES = (  # noqa: N806
         "cross_validations",
         "llm_extractions",
+        "transactions",
         "data_records",
         "ingestion_runs",
         "airports",

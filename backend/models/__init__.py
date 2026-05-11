@@ -6,6 +6,7 @@ from backend.models.data_record import DataRecord
 from backend.models.ingestion_run import IngestionRun
 from backend.models.llm_extraction import LLMExtraction
 from backend.models.methodology_version import MethodologyVersion
+from backend.models.transaction import Transaction
 
 __all__ = [
     "Base",
@@ -16,4 +17,5 @@ __all__ = [
     "DataRecord",
     "LLMExtraction",
     "CrossValidation",
+    "Transaction",
 ]
