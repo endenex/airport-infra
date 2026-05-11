@@ -20,6 +20,12 @@ from datetime import date as date_type
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from analysis.consortium_network import (
+    compute_network,
+)
+from analysis.consortium_network import (
+    methodology_notes as consortium_notes,
+)
 from analysis.fund_vintage_wall import (
     DEFAULT_HOLD_MAX_YEARS,
     DEFAULT_HOLD_MEDIAN_YEARS,
@@ -31,6 +37,32 @@ from analysis.fund_vintage_wall import (
 from backend.db.connection import get_db
 
 router = APIRouter(prefix="/capital-flows", tags=["capital-flows"])
+
+
+@router.get(
+    "/consortium-network",
+    summary="Layer β.4 — Co-investment network graph",
+    description=(
+        "Nodes are distinct named investors; edges form when two parties "
+        "appear together on the same side of the same transaction. "
+        "Edges only form between identifier_status='identified' parties — "
+        "rumoured partnerships never asserted (Layer γ honesty discipline). "
+        "Set include_unidentified=true to override (use sparingly)."
+    ),
+)
+def consortium_network(
+    db: Session = Depends(get_db),
+    include_unidentified: bool = Query(
+        False,
+        description="Include parties with identifier_status != 'identified'. Off by default.",
+    ),
+) -> dict:
+    nodes, edges = compute_network(db, include_unidentified=include_unidentified)
+    return {
+        "nodes": [asdict(n) for n in nodes],
+        "edges": [asdict(e) for e in edges],
+        "methodology_notes": consortium_notes(),
+    }
 
 
 @router.get(
