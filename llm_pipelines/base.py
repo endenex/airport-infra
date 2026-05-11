@@ -66,6 +66,10 @@ class LLMPipelineBase(ABC):
     """
 
     prompt_version: str  # e.g. "1.0" — bump when prompt changes materially
+    # DataRecord.record_type emitted by this pipeline (CLIMATE | OPERATIONAL | …).
+    # Used by the runner to scope the cache check so two pipelines can co-process
+    # the same PDF without their caches colliding.
+    record_type: str
     # Extraction tasks should be deterministic so re-runs produce the same
     # payload hash → same record ID → idempotent.
     temperature: float = 0.0

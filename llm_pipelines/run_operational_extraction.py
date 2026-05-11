@@ -1,17 +1,17 @@
 """
-CLIMATE extraction entry point. Thin wrapper over disclosure_runner.
+OPERATIONAL extraction entry point. Thin wrapper over disclosure_runner.
 
-Run: uv run python -m llm_pipelines.run_climate_extraction
-     uv run python -m llm_pipelines.run_climate_extraction --iata LHR LGW
-     uv run python -m llm_pipelines.run_climate_extraction --force
+Run: uv run python -m llm_pipelines.run_operational_extraction
+     uv run python -m llm_pipelines.run_operational_extraction --iata LHR LGW
+     uv run python -m llm_pipelines.run_operational_extraction --force
 """
 
 import argparse
 import logging
 
 from backend.db.connection import SessionLocal
-from llm_pipelines.climate_extraction import ClimateExtractionPipeline
 from llm_pipelines.disclosure_runner import INTER_CALL_SLEEP_SECONDS, run_disclosures
+from llm_pipelines.operational_extraction import OperationalExtractionPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,13 @@ if __name__ == "__main__":
     try:
         result = run_disclosures(
             db,
-            pipeline=ClimateExtractionPipeline(),
+            pipeline=OperationalExtractionPipeline(),
             iatas=args.iata,
             force=args.force,
             inter_call_sleep_seconds=0 if args.no_throttle else INTER_CALL_SLEEP_SECONDS,
         )
         print(
-            f"Climate extraction: "
+            f"Operational extraction: "
             f"created={result['created']} skipped={result['skipped']} "
             f"auto_approved={result['auto_approved']} pending_review={result['pending_review']} "
             f"errors={result['errors']} failures={result['failures']}"
