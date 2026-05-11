@@ -5,9 +5,18 @@ a real Postgres connection. SQLAlchemy models are created fresh per session.
 
 import pytest
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session, sessionmaker
 
-from backend.models import Base, MethodologyVersion, AssumptionSet
+from backend.models import AssumptionSet, Base, MethodologyVersion
+
+
+# SQLite can't compile JSONB. Map it to plain JSON for tests — production
+# stays on PostgreSQL JSONB; this only kicks in under the sqlite dialect.
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
 
 
 @pytest.fixture(scope="session")
@@ -26,7 +35,7 @@ def engine():
 
 @pytest.fixture(scope="session")
 def db_session(engine) -> Session:
-    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)  # noqa: N806
     session = SessionLocal()
 
     # Seed: methodology version 1.0.0

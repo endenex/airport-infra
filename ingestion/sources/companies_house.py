@@ -52,17 +52,24 @@ class CompaniesHouseIngestor(IngestorBase):
         return a.id if a else None
 
     def fetch(self) -> dict:
+        if not settings.companies_house_api_key:
+            raise RuntimeError(
+                "COMPANIES_HOUSE_API_KEY not configured — Companies House requires auth."
+            )
+
         profile_url = f"{API_BASE}/company/{self.company_number}"
         psc_url = f"{API_BASE}/company/{self.company_number}/persons-with-significant-control"
 
         profile_resp = httpx.get(profile_url, auth=self._auth, timeout=15)
         profile_resp.raise_for_status()
 
+        # PSC can legitimately 404 (company has no declared controllers) — that's fine.
         psc_data: dict = {}
-        if settings.companies_house_api_key:
-            psc_resp = httpx.get(psc_url, auth=self._auth, timeout=15)
-            if psc_resp.status_code == 200:
-                psc_data = psc_resp.json()
+        psc_resp = httpx.get(psc_url, auth=self._auth, timeout=15)
+        if psc_resp.status_code == 200:
+            psc_data = psc_resp.json()
+        elif psc_resp.status_code not in (404,):
+            psc_resp.raise_for_status()
 
         return {"profile": profile_resp.json(), "psc": psc_data, "url": profile_url}
 
@@ -140,13 +147,15 @@ def run_all(db: Session, company_numbers: list[str] | None = None) -> dict:
         for cn, info in KNOWN_ENTITIES.items()
         if company_numbers is None or cn in company_numbers
     }
-    totals = {"created": 0, "skipped": 0, "errors": []}
+    totals: dict = {"created": 0, "skipped": 0, "errors": []}
     for cn, (iata, name) in targets.items():
         try:
             ingestor = CompaniesHouseIngestor(company_number=cn, iata=iata, entity_name=name)
             result = ingestor.run(db)
             totals["created"] += result.records_created
             totals["skipped"] += result.records_skipped
+            for err in result.errors:
+                totals["errors"].append(f"{name}: {err}")
             logger.info("%s done: created=%d skipped=%d", name, result.records_created, result.records_skipped)
         except Exception as exc:
             logger.error("%s failed: %s", name, exc)

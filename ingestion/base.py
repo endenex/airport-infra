@@ -118,15 +118,20 @@ class IngestorBase(ABC):
             records = self.parse(raw_data)
             result.records_fetched = len(records)
 
+            # Bulk-fetch existing IDs up-front (one SELECT instead of N db.get() calls).
+            # Chunked to keep IN-clause sizes reasonable on PG.
+            candidate_ids = [self.record_id(r) for r in records]
+            existing_ids: set[str] = set()
+            for chunk_start in range(0, len(candidate_ids), 1000):
+                chunk = candidate_ids[chunk_start : chunk_start + 1000]
+                for (row_id,) in db.query(DataRecord.id).filter(DataRecord.id.in_(chunk)):
+                    existing_ids.add(row_id)
+
             seen_ids: set[str] = set()
-            for raw in records:
-                rec_id = self.record_id(raw)
-                # Check in-memory first: db.get() misses pending (unflushed) objects
-                if rec_id in seen_ids:
-                    result.records_skipped += 1
-                    continue
-                existing = db.get(DataRecord, rec_id)
-                if existing is not None:
+            for raw, rec_id in zip(records, candidate_ids):
+                # In-memory check covers intra-batch duplicates that db.get() misses
+                # for pending (unflushed) objects in the SQLAlchemy identity map.
+                if rec_id in seen_ids or rec_id in existing_ids:
                     result.records_skipped += 1
                     continue
                 seen_ids.add(rec_id)
@@ -160,6 +165,9 @@ class IngestorBase(ABC):
             db.rollback()
             error_msg = f"{type(exc).__name__}: {exc}"
             result.errors.append(error_msg)
+            # Reset counts — the records weren't actually committed.
+            result.records_created = 0
+            result.records_skipped = 0
             run.status = "failed"
             run.error_message = error_msg
             run.completed_at = datetime.now(timezone.utc)

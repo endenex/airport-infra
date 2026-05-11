@@ -14,8 +14,8 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import datetime
+from typing import Literal
 
 import anthropic
 from sqlalchemy.orm import Session
@@ -122,6 +122,18 @@ class LLMPipelineBase(ABC):
             raise RuntimeError("No active methodology version found. Run migrations first.")
         return version
 
+    @staticmethod
+    def _record_id(extracted: "ExtractedRecord") -> str:
+        """Deterministic record ID — mirrors IngestorBase.record_id() conventions."""
+        import hashlib
+        import json as _json
+        payload_hash = hashlib.sha256(
+            _json.dumps(extracted.payload, sort_keys=True, default=str).encode()
+        ).hexdigest()[:16]
+        retrieval_date = extracted.retrieved_at.strftime("%Y-%m-%d")
+        composite = f"llm:{retrieval_date}:{extracted.entity_key}:{payload_hash}"
+        return hashlib.sha256(composite.encode()).hexdigest()[:48]
+
     def persist(
         self,
         result: ExtractionResult,
@@ -132,8 +144,6 @@ class LLMPipelineBase(ABC):
         Write extracted records to data_records + llm_extractions tables.
         Returns counts: {created, skipped, pending_review, auto_approved}.
         """
-        from ingestion.base import IngestorBase  # avoid circular at module level
-
         methodology_version = self._get_current_methodology_version(db)
         counts: dict[str, int] = {
             "created": 0,
@@ -142,19 +152,19 @@ class LLMPipelineBase(ABC):
             "pending_review": 0,
         }
 
-        for extracted in result.records:
-            # Reuse deterministic ID logic from ingestion harness
-            import hashlib, json as _json
-            payload_hash = hashlib.sha256(
-                _json.dumps(extracted.payload, sort_keys=True, default=str).encode()
-            ).hexdigest()[:16]
-            retrieval_date = extracted.retrieved_at.strftime("%Y-%m-%d")
-            composite = f"llm:{retrieval_date}:{extracted.entity_key}:{payload_hash}"
-            rec_id = hashlib.sha256(composite.encode()).hexdigest()[:48]
+        candidate_ids = [self._record_id(r) for r in result.records]
+        existing_ids: set[str] = set()
+        for chunk_start in range(0, len(candidate_ids), 1000):
+            chunk = candidate_ids[chunk_start : chunk_start + 1000]
+            for (row_id,) in db.query(DataRecord.id).filter(DataRecord.id.in_(chunk)):
+                existing_ids.add(row_id)
 
-            if db.get(DataRecord, rec_id) is not None:
+        seen_ids: set[str] = set()
+        for extracted, rec_id in zip(result.records, candidate_ids):
+            if rec_id in seen_ids or rec_id in existing_ids:
                 counts["skipped"] += 1
                 continue
+            seen_ids.add(rec_id)
 
             review_status = self.route(extracted)
             record = DataRecord(
@@ -172,7 +182,7 @@ class LLMPipelineBase(ABC):
                 ingestion_run_id=ingestion_run_id,
             )
             db.add(record)
-            db.flush()
+            db.flush()  # satisfy FK from llm_extractions.data_record_id
 
             extraction_meta = LLMExtraction(
                 data_record_id=rec_id,

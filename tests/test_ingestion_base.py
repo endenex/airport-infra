@@ -3,9 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
-
-from ingestion.base import IngestorBase, RawRecord, IngestionResult
+from ingestion.base import IngestorBase, RawRecord
 
 
 class StubIngestor(IngestorBase):
@@ -75,3 +73,36 @@ class TestIngestionRun:
         result = ingestor.run(db_session)
         assert result.success is True
         assert result.records_fetched == 1
+
+    def test_intra_batch_duplicates_are_deduped(self, db_session):
+        """
+        Two records with identical entity_key + payload + retrieval_date hash
+        to the same ID. The base must dedupe them within the same batch —
+        db.get() misses pending (unflushed) objects, so an in-memory check is
+        required to avoid a PK collision at commit time.
+        """
+        r1 = make_record(entity_key="AMS_DUP", payload={"revenue": 999, "year": 2024})
+        r2 = make_record(entity_key="AMS_DUP", payload={"revenue": 999, "year": 2024})
+        ingestor = StubIngestor([r1, r2])
+        result = ingestor.run(db_session)
+        assert result.success is True
+        assert result.records_created == 1
+        assert result.records_skipped == 1
+
+    def test_failed_run_resets_counts(self, db_session):
+        """On rollback the result must not report records as created."""
+
+        class ExplodingIngestor(IngestorBase):
+            source_id = "exploding"
+
+            def fetch(self) -> Any:
+                return [make_record(entity_key="EXPLODE_1"), make_record(entity_key="EXPLODE_2")]
+
+            def parse(self, raw: Any) -> list[RawRecord]:
+                raise RuntimeError("parse blew up")
+
+        result = ExplodingIngestor().run(db_session)
+        assert result.success is False
+        assert result.records_created == 0
+        assert result.records_skipped == 0
+        assert any("parse blew up" in e for e in result.errors)

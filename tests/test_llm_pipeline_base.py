@@ -1,9 +1,7 @@
 """Tests for the LLM pipeline base — confidence routing and review queue."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from llm_pipelines.base import ExtractedRecord, ExtractionResult, LLMPipelineBase
 

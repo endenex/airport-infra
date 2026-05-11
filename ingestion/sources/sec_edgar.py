@@ -17,7 +17,6 @@ import httpx
 from sqlalchemy.orm import Session
 
 from backend.db.connection import SessionLocal
-from backend.models import Airport
 from ingestion.base import IngestorBase, RawRecord
 
 logger = logging.getLogger(__name__)
@@ -124,13 +123,15 @@ def run_all(db: Session, ciks: list[str] | None = None) -> dict:
         for cik, info in KNOWN_ENTITIES.items()
         if ciks is None or cik in ciks
     }
-    totals = {"created": 0, "skipped": 0, "errors": []}
+    totals: dict = {"created": 0, "skipped": 0, "errors": []}
     for cik, (iata, name) in targets.items():
         try:
             ingestor = SecEdgarIngestor(cik=cik, iata=iata, entity_name=name)
             result = ingestor.run(db)
             totals["created"] += result.records_created
             totals["skipped"] += result.records_skipped
+            for err in result.errors:
+                totals["errors"].append(f"{name}: {err}")
             logger.info("%s done: created=%d skipped=%d", name, result.records_created, result.records_skipped)
         except Exception as exc:
             logger.error("%s failed: %s", name, exc)

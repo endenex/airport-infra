@@ -14,7 +14,7 @@ Run: uv run python -m ingestion.sources.esma_xbrl
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy.orm import Session
@@ -53,15 +53,63 @@ TARGET_CONCEPTS = {
 }
 
 
+def _decrement_if_midnight(iso_dt: str) -> str:
+    """
+    XBRL/ESEF convention: an instant or duration-end encoded with time 00:00:00
+    means "start of that day" — so as a human-friendly "as of" date it
+    represents the close of the PREVIOUS day. E.g. PP&E at "2023-01-01T00:00:00"
+    means the balance at end of 2022-12-31.
+    """
+    if "T" not in iso_dt:
+        return iso_dt  # already a plain date
+    date_part, time_part = iso_dt.split("T", 1)
+    # Strip timezone suffix if present (Z, +HH:MM)
+    time_only = time_part.split("Z")[0].split("+")[0].split("-")[0]
+    if time_only.startswith("00:00:00"):
+        try:
+            d = datetime.fromisoformat(date_part).date()
+            return (d - timedelta(days=1)).isoformat()
+        except ValueError:
+            return date_part
+    return date_part
+
+
 def _parse_period(period_str: str) -> tuple[str | None, str | None]:
-    """Parse XBRL period string into (start, end). Handles instants and durations."""
+    """
+    Parse XBRL period string into (start, end) ISO dates.
+
+    Duration form: "2022-01-01T00:00:00/2023-01-01T00:00:00" → ("2022-01-01", "2022-12-31")
+                   (end is exclusive; subtract 1 day for inclusive period_end)
+    Instant form:  "2023-01-01T00:00:00" → (None, "2022-12-31")
+                   (instant at midnight = balance at close of previous day)
+    """
+    if not period_str:
+        return None, None
     if "/" in period_str:
-        parts = period_str.split("/")
-        start = parts[0].split("T")[0]
-        end = parts[1].split("T")[0]
+        start_raw, end_raw = period_str.split("/", 1)
+        # Start: take the date as-is (start of day is fine)
+        start = start_raw.split("T")[0]
+        end = _decrement_if_midnight(end_raw)
         return start, end
     # Instant
-    return None, period_str.split("T")[0]
+    return None, _decrement_if_midnight(period_str)
+
+
+def _coerce_numeric(value) -> float | None:
+    """Convert XBRL value (often a string) to float; return None for non-numeric."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s.lower() in {"nil", "n/a", "none"}:
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
 
 
 class EsmaXbrlIngestor(IngestorBase):
@@ -71,7 +119,21 @@ class EsmaXbrlIngestor(IngestorBase):
         self.lei = lei
         self.iata = iata
         self.entity_name = entity_name
+        self._client: httpx.Client | None = None
+
+    def __enter__(self) -> "EsmaXbrlIngestor":
         self._client = httpx.Client(timeout=60, follow_redirects=True)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def _http(self) -> httpx.Client:
+        if self._client is None:
+            self._client = httpx.Client(timeout=60, follow_redirects=True)
+        return self._client
 
     def _get_airport_id(self, db: Session):
         if not self.iata:
@@ -80,7 +142,7 @@ class EsmaXbrlIngestor(IngestorBase):
         return a.id if a else None
 
     def _fetch_filings(self) -> list[dict]:
-        resp = self._client.get(
+        resp = self._http().get(
             FILINGS_URL,
             params={"filter[entity.identifier]": self.lei, "page[size]": 50},
         )
@@ -100,7 +162,7 @@ class EsmaXbrlIngestor(IngestorBase):
                 continue
             json_url = f"{FILINGS_BASE}{json_path}"
             try:
-                resp = self._client.get(json_url, timeout=120)
+                resp = self._http().get(json_url, timeout=120)
                 resp.raise_for_status()
                 facts_bundle = resp.json()
                 results.append((attrs, facts_bundle.get("facts", {})))
@@ -130,8 +192,9 @@ class EsmaXbrlIngestor(IngestorBase):
                 if concept not in TARGET_CONCEPTS:
                     continue
 
-                value = fact.get("value")
-                if value is None:
+                raw_value = fact.get("value")
+                numeric_value = _coerce_numeric(raw_value)
+                if numeric_value is None:
                     continue
 
                 period_str = dims.get("period", "")
@@ -153,10 +216,12 @@ class EsmaXbrlIngestor(IngestorBase):
                         "lei": self.lei,
                         "entity_name": self.entity_name,
                         "concept": concept,
-                        "value": value,
+                        "value": numeric_value,
+                        "value_raw": raw_value,
                         "decimals": fact.get("decimals"),
                         "unit": dims.get("unit", "").replace("iso4217:", ""),
                         "filing_period_end": period_end,
+                        "xbrl_period": period_str,
                     },
                 ))
 
@@ -187,13 +252,15 @@ def run_all(db: Session, leis: list[str] | None = None) -> dict:
         for lei, info in KNOWN_ENTITIES.items()
         if leis is None or lei in leis
     }
-    totals = {"created": 0, "skipped": 0, "errors": []}
+    totals: dict = {"created": 0, "skipped": 0, "errors": []}
     for lei, (iata, name) in targets.items():
         try:
-            ingestor = EsmaXbrlIngestor(lei=lei, iata=iata, entity_name=name)
-            result = ingestor.run(db)
+            with EsmaXbrlIngestor(lei=lei, iata=iata, entity_name=name) as ingestor:
+                result = ingestor.run(db)
             totals["created"] += result.records_created
             totals["skipped"] += result.records_skipped
+            for err in result.errors:
+                totals["errors"].append(f"{name}: {err}")
             logger.info("%s done: created=%d skipped=%d", name, result.records_created, result.records_skipped)
         except Exception as exc:
             logger.error("%s failed: %s", name, exc)
