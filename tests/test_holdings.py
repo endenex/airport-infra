@@ -6,7 +6,10 @@ from datetime import date, datetime, timezone
 import pytest
 
 from analysis.consortium_network import compute_co_ownership_network
-from analysis.holdings import compute_current_holdings
+from analysis.holdings import (
+    compute_current_holdings,
+    reconcile_stakes,
+)
 from backend.models import Airport, MethodologyVersion
 from backend.models.transaction import Transaction
 
@@ -249,6 +252,72 @@ class TestCoOwnership:
         ]
 
 
+# ── Stake reconciliation ────────────────────────────────────────────────
+
+
+class TestReconcileStakes:
+    def test_balanced_airport(self, api_db, lhr):
+        _txn(api_db, airport=lhr, when=date(2024, 1, 1), buyers=[
+            {"name": "Owner A", "identifier_status": "identified",
+             "equity_stake_pct": 60.0},
+            {"name": "Owner B", "identifier_status": "identified",
+             "equity_stake_pct": 40.0},
+        ])
+        recs = reconcile_stakes(compute_current_holdings(api_db))
+        assert len(recs) == 1
+        assert recs[0].status == "balanced"
+        assert recs[0].total_held_pct == 100.0
+        assert recs[0].holder_count == 2
+
+    def test_under_allocated_flags(self, api_db, lhr):
+        """Only 60% accounted for → missing data signal."""
+        _txn(api_db, airport=lhr, when=date(2024, 1, 1), buyers=[
+            {"name": "Solo Buyer", "identifier_status": "identified",
+             "equity_stake_pct": 60.0},
+        ])
+        recs = reconcile_stakes(compute_current_holdings(api_db))
+        assert recs[0].status == "under_allocated"
+        assert recs[0].deviation_from_100_pct == -40.0
+
+    def test_over_allocated_flags(self, api_db, lhr):
+        """Sum > 100% → extraction error somewhere upstream."""
+        _txn(api_db, airport=lhr, when=date(2024, 1, 1), buyers=[
+            {"name": "Greedy A", "identifier_status": "identified",
+             "equity_stake_pct": 70.0},
+            {"name": "Greedy B", "identifier_status": "identified",
+             "equity_stake_pct": 50.0},
+        ])
+        recs = reconcile_stakes(compute_current_holdings(api_db))
+        assert recs[0].status == "over_allocated"
+        assert recs[0].deviation_from_100_pct == 20.0
+
+    def test_tolerance_band_treats_near_100_as_balanced(self, api_db, lhr):
+        """A 0.5% gap from rounding shouldn't trip the flag."""
+        _txn(api_db, airport=lhr, when=date(2024, 1, 1), buyers=[
+            {"name": "Owner A", "identifier_status": "identified",
+             "equity_stake_pct": 50.01},
+            {"name": "Owner B", "identifier_status": "identified",
+             "equity_stake_pct": 49.5},
+        ])
+        # Default tolerance 1.0%; deviation = -0.49 → balanced
+        recs = reconcile_stakes(compute_current_holdings(api_db))
+        assert recs[0].status == "balanced"
+
+    def test_results_sorted_by_absolute_deviation(self, api_db, lhr, lgw):
+        _txn(api_db, airport=lhr, when=date(2024, 1, 1), buyers=[
+            {"name": "X", "identifier_status": "identified",
+             "equity_stake_pct": 60.0},  # -40% deviation
+        ])
+        _txn(api_db, airport=lgw, when=date(2024, 1, 1), buyers=[
+            {"name": "Y", "identifier_status": "identified",
+             "equity_stake_pct": 30.0},  # -70% deviation
+        ])
+        recs = reconcile_stakes(compute_current_holdings(api_db))
+        # LGW has bigger absolute deviation → comes first
+        assert recs[0].airport_iata == "LGW"
+        assert recs[1].airport_iata == "LHR"
+
+
 # ── API surface ─────────────────────────────────────────────────────────
 
 
@@ -280,3 +349,25 @@ class TestApi:
         # Provenance preserved per holding
         for h in body["holdings"]:
             assert len(h["established_via"]) >= 1
+
+    def test_reconciliation_in_response(self, api_client, seeded):
+        """The seeded fixture has 50% + 30% = 80% total → under_allocated flag."""
+        r = api_client.get("/capital-flows/current-holdings")
+        body = r.json()
+        assert "reconciliation" in body
+        assert len(body["reconciliation"]) == 1
+        rec = body["reconciliation"][0]
+        assert rec["airport_iata"] == "LHR"
+        assert rec["total_held_pct"] == 80.0
+        assert rec["status"] == "under_allocated"
+        assert rec["deviation_from_100_pct"] == -20.0
+        assert body["reconciliation_tolerance_pct"] == 1.0
+
+    def test_reconciliation_tolerance_override(self, api_client, seeded):
+        """A 30% tolerance band makes the 20% deviation 'balanced'."""
+        r = api_client.get(
+            "/capital-flows/current-holdings",
+            params={"reconciliation_tolerance_pct": 30},
+        )
+        body = r.json()
+        assert body["reconciliation"][0]["status"] == "balanced"

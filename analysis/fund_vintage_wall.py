@@ -1,21 +1,26 @@
 """
 Layer β.1 — Fund Vintage Maturity Wall (Appendix D Layer β).
 
-Computes per-transaction "holdings" with maturity metadata: for each
-closed/signed acquisition where the buyer carries a fund_vintage, derive
-holding age, expected exit window, and maturity-percent.
+v2 (current commit): rebuilt on the holdings reconciliation layer.
+Earlier v1 looped buyer_entities directly from transactions and missed
+two cases:
+  - Continuing holders (e.g. GIP's 49.99% of EDI as continuing_holder
+    on the VINCI deal) — never appeared in buyer_entities so never
+    surfaced. v2 sees them via analysis.holdings.compute_current_holdings.
+  - Cumulative positions (Fund A buys 30% in 2018 and 20% in 2022 →
+    one position, 50%). v1 produced two separate "holdings" with stake
+    fields meaning "amount acquired in that transaction". v2 produces
+    one position with the current cumulative stake.
 
-Methodology v1 — intentionally honest about limitations:
+Methodology v2:
   - Median hold = 10y; window = vintage + 8y to vintage + 12y (typical
     infrastructure-fund range).
   - Strategic operators (VINCI, Vinci Airports, AENA Internacional etc.)
-    are EXCLUDED from this view — they don't exit on a vintage clock.
-  - We do NOT yet net acquisitions against divestments for the same fund.
-    A fund that bought into airport A and later sold its stake will still
-    appear as a "current position" here. v2 should reconcile via the
-    transactions table once we have richer ownership chains.
-  - Only acquisitions from transactions table feed this. Pre-existing
-    holdings inferred from CONCESSION / OWNERSHIP records aren't included.
+    are EXCLUDED — they don't exit on a vintage clock.
+  - Closed transactions only (per holdings replay). signed-but-not-closed
+    deals are forward-looking, not held positions.
+  - Funds without fund_vintage data are silently omitted. Absence here
+    is not evidence of absence from the market.
 
 Run: uv run python -m analysis.fund_vintage_wall
 """
@@ -25,12 +30,10 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from analysis.holdings import compute_current_holdings
 from backend.db.connection import SessionLocal
-from backend.models import Airport
-from backend.models.transaction import Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +43,23 @@ DEFAULT_HOLD_MIN_YEARS = 8
 DEFAULT_HOLD_MEDIAN_YEARS = 10
 DEFAULT_HOLD_MAX_YEARS = 12
 
-# State filter: holdings come from acquisitions that actually happened
-# (closed) or are imminent (signed). Counterfactuals are excluded.
-HOLDING_STATES = {"closed", "signed"}
-
 
 @dataclass
 class FundHolding:
-    """One fund-backed position derived from an acquisition transaction."""
+    """One fund-backed position derived from current holdings."""
 
-    transaction_id: str
     airport_iata: str | None
     airport_name: str | None
-    buyer_name: str
+    holder_name: str
     fund_name: str | None
     fund_vintage: int
-    transaction_close_year: int | None  # year position established
-    stake_acquired_pct: float | None
+    first_established_year: int | None  # year position originally established
+    current_stake_pct: float            # cumulative current stake (after replay)
     holding_age_years: float            # today - vintage
     expected_exit_year: int             # vintage + median hold
     expected_exit_window: list[int]     # [vintage + min, vintage + max]
     maturity_pct: float                 # 0-100; capped at 100
+    transaction_ids: list[str]          # all transactions that touched the position
 
 
 @dataclass
@@ -73,10 +72,6 @@ class MaturityWallBucket:
     holder_names: list[str]
 
 
-def _to_year(d: date | None) -> int | None:
-    return d.year if d is not None else None
-
-
 def compute_holdings(
     db: Session,
     *,
@@ -86,51 +81,47 @@ def compute_holdings(
     hold_max_years: int = DEFAULT_HOLD_MAX_YEARS,
 ) -> list[FundHolding]:
     """
-    Build the list of current fund-backed positions from acquisition
-    transactions. One holding per (transaction, buyer-with-vintage) tuple —
-    a consortium of 2 funds buying one airport yields 2 holdings.
+    Build fund-vintage positions from CURRENT holdings (reconciled by
+    analysis.holdings.compute_current_holdings).
+
+    Each output row = one (airport, fund) current position. A fund that
+    accumulated its stake across multiple transactions appears once with
+    the cumulative current_stake_pct. Continuing-holder positions (e.g.
+    GIP carried over a VINCI deal) appear too if vintage data is on the
+    continuing_holders entry.
     """
     if today is None:
         today = datetime.now(timezone.utc).date()
 
-    holdings: list[FundHolding] = []
-    txns = db.scalars(
-        select(Transaction).where(
-            Transaction.state.in_(HOLDING_STATES),
-            Transaction.transaction_type.in_({"acquisition", "minority_stake"}),
-        )
-    ).all()
+    out: list[FundHolding] = []
+    for h in compute_current_holdings(db):
+        if h.is_strategic_operator:
+            continue
+        if not isinstance(h.fund_vintage, int):
+            continue
+        vintage = h.fund_vintage
+        holding_age = (today.year - vintage) + (today.month - 1) / 12.0
+        expected_exit = vintage + hold_median_years
+        window = [vintage + hold_min_years, vintage + hold_max_years]
+        maturity_pct = min(100.0, max(0.0, holding_age / hold_median_years * 100))
 
-    for txn in txns:
-        airport = db.get(Airport, txn.airport_id) if txn.airport_id else None
-        for buyer in (txn.buyer_entities or []):
-            # Strategic operators don't exit on a vintage clock — skip.
-            if buyer.get("is_strategic_operator") is True:
-                continue
-            vintage = buyer.get("fund_vintage")
-            if not isinstance(vintage, int):
-                continue
-            holding_age = (today.year - vintage) + (today.month - 1) / 12.0
-            expected_exit = vintage + hold_median_years
-            window = [vintage + hold_min_years, vintage + hold_max_years]
-            maturity_pct = min(100.0, max(0.0, holding_age / hold_median_years * 100))
-
-            holdings.append(FundHolding(
-                transaction_id=str(txn.id),
-                airport_iata=airport.iata_code if airport else None,
-                airport_name=airport.name if airport else None,
-                buyer_name=buyer.get("name") or "<unknown>",
-                fund_name=buyer.get("fund_name"),
-                fund_vintage=vintage,
-                transaction_close_year=_to_year(txn.close_date or txn.announce_date),
-                stake_acquired_pct=buyer.get("equity_stake_pct"),
-                holding_age_years=round(holding_age, 2),
-                expected_exit_year=expected_exit,
-                expected_exit_window=window,
-                maturity_pct=round(maturity_pct, 1),
-            ))
-
-    return holdings
+        out.append(FundHolding(
+            airport_iata=h.airport_iata,
+            airport_name=h.airport_name,
+            holder_name=h.holder_name,
+            fund_name=h.fund_name,
+            fund_vintage=vintage,
+            first_established_year=(
+                h.first_established.year if h.first_established else None
+            ),
+            current_stake_pct=h.current_stake_pct,
+            holding_age_years=round(holding_age, 2),
+            expected_exit_year=expected_exit,
+            expected_exit_window=window,
+            maturity_pct=round(maturity_pct, 1),
+            transaction_ids=[ev.transaction_id for ev in h.established_via],
+        ))
+    return out
 
 
 def aggregate_by_exit_year(holdings: list[FundHolding]) -> list[MaturityWallBucket]:
@@ -144,7 +135,7 @@ def aggregate_by_exit_year(holdings: list[FundHolding]) -> list[MaturityWallBuck
         b.count += 1
         if h.airport_iata:
             b.airports.append(h.airport_iata)
-        b.holder_names.append(h.buyer_name)
+        b.holder_names.append(h.holder_name)
     return sorted(buckets.values(), key=lambda b: b.year)
 
 
@@ -156,15 +147,15 @@ def methodology_notes(
         "(typical for infrastructure funds; v1 default).",
         "Strategic operators (e.g. VINCI Airports, AENA Internacional) excluded — "
         "they don't exit on a vintage clock.",
-        "Only transactions in state {closed, signed} feed this view. "
-        "Counterfactual states (abandoned, pulled, etc.) are excluded.",
-        "v1 limitation: divestments by a fund are NOT yet netted against "
-        "their earlier acquisitions. A fund that bought into airport A and "
-        "later sold its stake will still appear as a 'current' position. "
-        "v2 should reconcile via the transactions table.",
-        "Only buyers with explicit fund_vintage data appear. Transactions "
-        "where the LLM couldn't extract vintage are silently omitted; "
-        "absence here is not evidence of absence from the market.",
+        "v2 (current): positions derived from current reconciled holdings "
+        "(analysis/holdings.py replay). Closes the v1 gap where continuing "
+        "holders and cross-transaction accumulations were invisible. "
+        "Divestments now net correctly against earlier acquisitions.",
+        "Only CLOSED transactions feed the holdings replay. signed-but-"
+        "not-yet-closed deals are forward-looking, not held positions.",
+        "Only holders with explicit fund_vintage data appear. Funds where "
+        "the LLM couldn't extract vintage are silently omitted; absence "
+        "here is not evidence of absence from the market.",
     ]
 
 
@@ -185,13 +176,14 @@ if __name__ == "__main__":
 
         print(f"\n=== Fund Vintage Maturity Wall ({len(holdings)} fund-backed positions) ===\n")
         if not holdings:
-            print("  No holdings — no transactions in {closed,signed} with fund_vintage data.")
+            print("  No holdings — no current holdings with fund_vintage data.")
         for h in holdings:
             print(
                 f"  {h.airport_iata or '?':>4} "
-                f"{h.buyer_name[:30]:30s} "
+                f"{h.holder_name[:30]:30s} "
                 f"vintage={h.fund_vintage} "
-                f"closed={h.transaction_close_year}  "
+                f"established={h.first_established_year}  "
+                f"stake={h.current_stake_pct:5.1f}%  "
                 f"age={h.holding_age_years:4.1f}y  "
                 f"maturity={h.maturity_pct:5.1f}%  "
                 f"exit≈{h.expected_exit_year} ({h.expected_exit_window[0]}-{h.expected_exit_window[1]})"

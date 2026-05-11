@@ -36,7 +36,11 @@ from analysis.fund_vintage_wall import (
     compute_holdings,
     methodology_notes,
 )
-from analysis.holdings import compute_current_holdings
+from analysis.holdings import (
+    DEFAULT_RECONCILIATION_TOLERANCE_PCT,
+    compute_current_holdings,
+    reconcile_stakes,
+)
 from analysis.holdings import methodology_notes as holdings_notes
 from backend.db.connection import get_db
 
@@ -113,9 +117,19 @@ def co_ownership_network(
 def current_holdings(
     db: Session = Depends(get_db),
     include_unidentified: bool = Query(False),
+    reconciliation_tolerance_pct: float = Query(
+        DEFAULT_RECONCILIATION_TOLERANCE_PCT, ge=0, le=100,
+        description=(
+            "Tolerance band around 100%% for the stake-reconciliation status. "
+            "Within ±tolerance → 'balanced'. Default 1.0%."
+        ),
+    ),
 ) -> dict:
     holdings = compute_current_holdings(
         db, include_unidentified=include_unidentified,
+    )
+    reconciliations = reconcile_stakes(
+        holdings, tolerance_pct=reconciliation_tolerance_pct,
     )
     return {
         "holdings": [
@@ -145,6 +159,18 @@ def current_holdings(
             }
             for h in holdings
         ],
+        "reconciliation": [
+            {
+                "airport_iata": r.airport_iata,
+                "airport_name": r.airport_name,
+                "total_held_pct": r.total_held_pct,
+                "holder_count": r.holder_count,
+                "deviation_from_100_pct": r.deviation_from_100_pct,
+                "status": r.status,
+            }
+            for r in reconciliations
+        ],
+        "reconciliation_tolerance_pct": reconciliation_tolerance_pct,
         "methodology_notes": holdings_notes(),
     }
 

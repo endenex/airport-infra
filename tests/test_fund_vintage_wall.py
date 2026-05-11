@@ -44,6 +44,7 @@ def _make_txn(
     api_db, *, airport, asset_name: str, state: str, txn_type: str,
     buyer_entities: list[dict], close_year: int | None = None,
     seller_entities: list[dict] | None = None,
+    continuing_holders: list[dict] | None = None,
 ) -> Transaction:
     mv = api_db.query(MethodologyVersion).first()
     txn = Transaction(
@@ -51,12 +52,13 @@ def _make_txn(
         airport_id=airport.id if airport else None,
         asset_name=asset_name,
         announce_date=date(close_year, 12, 1) if close_year else None,
-        close_date=date(close_year, 12, 19) if close_year else None,
+        close_date=date(close_year, 12, 19) if (close_year and state == "closed") else None,
         state=state,
         transaction_type=txn_type,
         currency="GBP",
         buyer_entities=buyer_entities,
         seller_entities=seller_entities,
+        continuing_holders=continuing_holders,
         source_url="https://example.com/x",
         retrieved_at=datetime.now(timezone.utc),
         methodology_version_id=mv.id,
@@ -85,7 +87,10 @@ class TestComputeHoldings:
         assert len(holdings) == 1
         h = holdings[0]
         assert h.airport_iata == "BRS"
+        assert h.holder_name == "IFM Investors"
         assert h.fund_vintage == 2007
+        assert h.current_stake_pct == 50.0  # v2: cumulative current stake
+        assert h.first_established_year == 2014
         # Holding age: mid-2024 - vintage 2007 ≈ 17.5y
         assert 17 < h.holding_age_years < 18
         # Median exit: 2007 + 10 = 2017
@@ -121,17 +126,22 @@ class TestComputeHoldings:
         )
         assert compute_holdings(api_db, today=date(2024, 7, 1)) == []
 
-    def test_includes_signed_state_transactions(self, api_db, brs):
-        """signed = imminent closing; still counts as a position."""
+    def test_excludes_signed_state_transactions(self, api_db, brs):
+        """
+        v2: signed-but-not-closed deals are forward-looking, NOT held
+        positions. v1 incorrectly counted them; v2 fixes this via the
+        holdings replay (closed-only).
+        """
         _make_txn(
             api_db, airport=brs, asset_name="Signed deal",
             state="signed", txn_type="acquisition", close_year=2024,
             buyer_entities=[{
                 "name": "Recent Fund", "is_strategic_operator": False,
+                "identifier_status": "identified",
                 "fund_vintage": 2020, "equity_stake_pct": 100.0,
             }],
         )
-        assert len(compute_holdings(api_db, today=date(2024, 7, 1))) == 1
+        assert compute_holdings(api_db, today=date(2024, 7, 1)) == []
 
     def test_excludes_counterfactual_states(self, api_db, brs):
         """Abandoned / pulled / rumored don't represent positions taken."""
@@ -175,8 +185,57 @@ class TestComputeHoldings:
             ],
         )
         holdings = compute_holdings(api_db, today=date(2024, 7, 1))
-        names = sorted(h.buyer_name for h in holdings)
+        names = sorted(h.holder_name for h in holdings)
         assert names == ["Ardian", "PIF"]
+
+    def test_v2_aggregates_cross_transaction_acquisitions(self, api_db, brs):
+        """
+        v2 fix: a fund buying 30% in 2018 + 20% in 2022 → ONE current position
+        at 50%. v1 showed two separate FundHoldings.
+        """
+        for year, pct in [(2018, 30.0), (2022, 20.0)]:
+            _make_txn(
+                api_db, airport=brs,
+                asset_name=f"BRS partial acq {year}",
+                state="closed", txn_type="acquisition", close_year=year,
+                buyer_entities=[{
+                    "name": "Patient Fund", "identifier_status": "identified",
+                    "is_strategic_operator": False,
+                    "fund_name": "Patient Infra Fund", "fund_vintage": 2015,
+                    "equity_stake_pct": pct,
+                }],
+            )
+        holdings = compute_holdings(api_db, today=date(2024, 7, 1))
+        assert len(holdings) == 1  # ONE position, not two
+        assert holdings[0].current_stake_pct == 50.0  # cumulative
+        assert holdings[0].first_established_year == 2018  # first event
+
+    def test_v2_surfaces_continuing_holder_with_vintage(self, api_db, lhr):
+        """
+        v2 fix: a continuing holder with vintage data now appears. v1 only
+        looked at buyer_entities and missed continuing-holder positions.
+        """
+        _make_txn(
+            api_db, airport=lhr, asset_name="LHR deal",
+            state="closed", txn_type="acquisition", close_year=2024,
+            buyer_entities=[{
+                "name": "Active Buyer", "is_strategic_operator": True,
+                "identifier_status": "identified",
+                "equity_stake_pct": 50.0,
+            }],
+            continuing_holders=[{
+                "name": "Long-standing LP", "identifier_status": "identified",
+                "is_strategic_operator": False,
+                "fund_name": "Steady Hand Fund IV", "fund_vintage": 2015,
+                "post_transaction_stake_pct": 50.0,
+            }],
+        )
+        holdings = compute_holdings(api_db, today=date(2024, 7, 1))
+        # Strategic buyer excluded; continuing LP holder appears
+        assert len(holdings) == 1
+        assert holdings[0].holder_name == "Long-standing LP"
+        assert holdings[0].current_stake_pct == 50.0
+        assert holdings[0].fund_vintage == 2015
 
     def test_assumption_overrides_propagate(self, api_db, brs):
         """User can override the 10-year median — Assumption Lab style."""
@@ -184,7 +243,8 @@ class TestComputeHoldings:
             api_db, airport=brs, asset_name="BRS acq",
             state="closed", txn_type="acquisition", close_year=2018,
             buyer_entities=[{
-                "name": "Long-hold Fund", "is_strategic_operator": False,
+                "name": "Long-hold Fund", "identifier_status": "identified",
+                "is_strategic_operator": False,
                 "fund_vintage": 2015, "equity_stake_pct": 30.0,
             }],
         )
@@ -206,14 +266,16 @@ class TestAggregate:
         _make_txn(
             api_db, airport=brs, asset_name="BRS 2014 acq",
             state="closed", txn_type="acquisition", close_year=2014,
-            buyer_entities=[{"name": "IFM", "is_strategic_operator": False,
+            buyer_entities=[{"name": "IFM", "identifier_status": "identified",
+                             "is_strategic_operator": False,
                              "fund_vintage": 2007, "equity_stake_pct": 50.0}],
         )
         # Same expected exit year (vintage 2007 + 10 = 2017)
         _make_txn(
             api_db, airport=lhr, asset_name="LHR 2014 acq",
             state="closed", txn_type="acquisition", close_year=2014,
-            buyer_entities=[{"name": "IFM-Fund-II", "is_strategic_operator": False,
+            buyer_entities=[{"name": "IFM-Fund-II", "identifier_status": "identified",
+                             "is_strategic_operator": False,
                              "fund_vintage": 2007, "equity_stake_pct": 10.0}],
         )
         holdings = compute_holdings(api_db, today=date(2024, 7, 1))
@@ -234,7 +296,8 @@ class TestFundVintageWallApi:
             api_db, airport=brs, asset_name="BRS IFM 2014",
             state="closed", txn_type="acquisition", close_year=2014,
             buyer_entities=[{
-                "name": "IFM Investors", "is_strategic_operator": False,
+                "name": "IFM Investors", "identifier_status": "identified",
+                "is_strategic_operator": False,
                 "fund_name": "IFM Global Infrastructure Fund",
                 "fund_vintage": 2007, "equity_stake_pct": 50.0,
             }],
@@ -273,7 +336,8 @@ class TestFundVintageWallApi:
         joined = " ".join(notes)
         # Critical disclosures that should be persistent
         assert "Strategic operators" in joined
-        assert "divestments" in joined  # v1 limitation acknowledged
+        # v2 acknowledges its provenance via the holdings reconciliation
+        assert "holdings" in joined.lower()
         assert "fund_vintage" in joined  # absence note
 
 

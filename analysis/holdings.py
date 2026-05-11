@@ -108,8 +108,18 @@ def compute_current_holdings(
     Replay all CLOSED transactions to derive current per-(airport, holder)
     positions. Returns positions where stake > 0.
     """
+    # Only equity-changing transaction types affect holdings. Refinancings
+    # are debt events, not ownership changes; "other" is too ambiguous to
+    # safely process.
+    OWNERSHIP_TRANSACTION_TYPES = {  # noqa: N806
+        "acquisition", "divestment", "minority_stake",
+        "secondary_buyout", "ipo", "concession_award",
+    }
     txns = db.scalars(
-        select(Transaction).where(Transaction.state == "closed")
+        select(Transaction).where(
+            Transaction.state == "closed",
+            Transaction.transaction_type.in_(OWNERSHIP_TRANSACTION_TYPES),
+        )
     ).all()
     # Group by airport_id; sort by date so replay order is chronological.
     by_airport: dict[object, list[Transaction]] = defaultdict(list)
@@ -231,6 +241,65 @@ def holdings_by_airport(
     out: dict[object, list[Holding]] = defaultdict(list)
     for h in holdings:
         out[h.airport_id].append(h)
+    return out
+
+
+@dataclass
+class StakeReconciliation:
+    """Per-airport sanity check on whether reconciled stakes sum to 100%."""
+
+    airport_iata: str | None
+    airport_name: str | None
+    total_held_pct: float
+    holder_count: int
+    deviation_from_100_pct: float  # signed: negative = under, positive = over
+    status: str                     # "balanced" | "under_allocated" | "over_allocated"
+
+
+DEFAULT_RECONCILIATION_TOLERANCE_PCT = 1.0
+
+
+def reconcile_stakes(
+    holdings: list[Holding],
+    *,
+    tolerance_pct: float = DEFAULT_RECONCILIATION_TOLERANCE_PCT,
+) -> list[StakeReconciliation]:
+    """
+    For each airport, check whether the sum of current holder stakes is
+    close to 100%. Under-allocated airports have transaction-data gaps
+    (likely missing continuing holders or pre-existing positions).
+    Over-allocated airports point to extraction errors (LLM double-counted
+    a party, or a stake field is wrong).
+
+    This is a data-quality signal, not a hard constraint — many airports
+    in our dataset are under-allocated simply because we haven't ingested
+    every transaction in their history. Surfacing the deviation gives a
+    reviewer the right place to focus.
+    """
+    by_airport: dict[object, list[Holding]] = defaultdict(list)
+    for h in holdings:
+        by_airport[h.airport_id].append(h)
+
+    out: list[StakeReconciliation] = []
+    for _airport_id, hs in by_airport.items():
+        total = sum(h.current_stake_pct for h in hs)
+        deviation = total - 100.0
+        if abs(deviation) <= tolerance_pct:
+            status = "balanced"
+        elif deviation > 0:
+            status = "over_allocated"
+        else:
+            status = "under_allocated"
+        out.append(StakeReconciliation(
+            airport_iata=hs[0].airport_iata,
+            airport_name=hs[0].airport_name,
+            total_held_pct=round(total, 2),
+            holder_count=len(hs),
+            deviation_from_100_pct=round(deviation, 2),
+            status=status,
+        ))
+    # Most-deviated first — reviewer's natural sort order.
+    out.sort(key=lambda r: -abs(r.deviation_from_100_pct))
     return out
 
 
