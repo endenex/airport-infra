@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import (
     airports,
+    anomalies,
     capital_flows,
     ingestion,
     records,
@@ -47,3 +48,4 @@ app.include_router(review.router)
 app.include_router(validations.router)
 app.include_router(transactions.router)
 app.include_router(capital_flows.router)
+app.include_router(anomalies.router)
