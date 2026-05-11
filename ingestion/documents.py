@@ -90,3 +90,50 @@ def extract_pdf_text(content: bytes, max_chars: int | None = None) -> str:
         logger.info("Truncating PDF text from %d to %d chars", len(text), max_chars)
         text = text[:max_chars]
     return text
+
+
+def extract_html_text(content: bytes, max_chars: int | None = None) -> str:
+    """
+    Extract visible text from HTML. Strips script/style, collapses whitespace,
+    keeps paragraph structure with double newlines. Used for press releases
+    that aren't published as PDFs.
+    """
+    from lxml import html as lxml_html  # already a dependency via XBRL ingestor
+
+    try:
+        doc = lxml_html.fromstring(content)
+    except Exception as exc:
+        logger.warning("HTML parse failed: %s", exc)
+        return ""
+    # Drop noise
+    for el in doc.xpath("//script|//style|//nav|//footer|//header|//noscript"):
+        el.getparent().remove(el)
+    # text_content() concatenates everything; we collapse whitespace.
+    raw = doc.text_content()
+    # Normalise: split on whitespace, rejoin with single spaces per line; then
+    # collapse 3+ newlines to 2 to preserve paragraph breaks.
+    lines = [line.strip() for line in raw.splitlines()]
+    lines = [line for line in lines if line]
+    text = "\n\n".join(lines)
+    if max_chars is not None and len(text) > max_chars:
+        logger.info("Truncating HTML text from %d to %d chars", len(text), max_chars)
+        text = text[:max_chars]
+    return text
+
+
+def extract_text_from_document(fetched: "FetchedDocument", max_chars: int | None = None) -> str:
+    """
+    Auto-route to PDF or HTML extractor based on content_type. Used by
+    pipelines that need to handle either kind of source (transaction press
+    releases, regulatory consent docs).
+    """
+    ct = (fetched.content_type or "").lower()
+    if "pdf" in ct:
+        return extract_pdf_text(fetched.content_bytes, max_chars=max_chars)
+    if "html" in ct or "xhtml" in ct:
+        return extract_html_text(fetched.content_bytes, max_chars=max_chars)
+    # Fallback: try PDF first (file might have wrong content-type)
+    try:
+        return extract_pdf_text(fetched.content_bytes, max_chars=max_chars)
+    except Exception:
+        return extract_html_text(fetched.content_bytes, max_chars=max_chars)
