@@ -218,10 +218,12 @@ def compute_inputs(
             val = float(raw_val)
         except (TypeError, ValueError):
             continue
-        if concept == "capex_allowance_total_gbp_million":
+        # v1.1 concession concept names (currency-agnostic). Older
+        # v1.0 records used …_gbp_million; those have been re-extracted.
+        if concept == "capex_allowance_total_million":
             total_capex_allowance = val
             inputs.source_record_ids.append(r.id)
-        elif concept == "forecast_capex_gbp_million" and r.period_end:
+        elif concept == "forecast_capex_million" and r.period_end:
             annual_capex[r.period_end.year] = val
             inputs.source_record_ids.append(r.id)
 

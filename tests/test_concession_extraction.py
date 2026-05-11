@@ -22,8 +22,12 @@ SAMPLE_CONTEXT = {
 }
 
 
-def _llm_response(*extractions: dict) -> str:
-    return json.dumps({"extractions": list(extractions)})
+def _llm_response(*extractions: dict, document_currency: str | None = "GBP") -> str:
+    """Build an LLM-response JSON envelope. v1.1 includes document_currency."""
+    payload: dict = {"extractions": list(extractions)}
+    if document_currency is not None:
+        payload["document_currency"] = document_currency
+    return json.dumps(payload)
 
 
 def _pipeline() -> ConcessionExtractionPipeline:
@@ -68,8 +72,8 @@ class TestParseResponse:
 
     def test_annual_concept_without_period_end_is_dropped(self):
         response = _llm_response(
-            {"concept": "forecast_capex_gbp_million", "value": 367,
-             "confidence": 0.95, "unit": "GBP_million"},  # no period_end
+            {"concept": "forecast_capex_million", "value": 367,
+             "confidence": 0.95, "unit": "million"},  # no period_end
         )
         assert _pipeline().parse_response(response, SAMPLE_CONTEXT) == []
 
@@ -126,8 +130,79 @@ def test_pipeline_declares_record_type():
     assert ConcessionExtractionPipeline.record_type == "CONCESSION"
 
 
+def test_pipeline_version_is_v1_1():
+    """v1.1 = currency-agnostic concept names + per-record currency field."""
+    assert ConcessionExtractionPipeline.prompt_version == "1.1"
+
+
 def test_concept_allowlist_consistency():
     """Each allowlisted concept has a recognized scope."""
     valid_scopes = {"regulatory_period", "annual"}
     for concept, scope in CONCESSION_CONCEPTS.items():
         assert scope in valid_scopes, f"{concept}: unknown scope {scope}"
+
+
+def test_no_concept_hardcodes_a_currency():
+    """
+    v1.1 invariant: concept names must NOT embed a currency code.
+    Currency travels in the per-record `currency` field.
+    """
+    currency_codes = {"gbp", "eur", "usd", "chf", "jpy", "cad", "aud"}
+    for concept in CONCESSION_CONCEPTS:
+        tokens = concept.lower().split("_")
+        offending = currency_codes.intersection(tokens)
+        assert not offending, (
+            f"Concept {concept!r} embeds currency tokens {offending}. "
+            f"Use a currency-agnostic name and rely on payload.currency."
+        )
+
+
+class TestCurrencyHandling:
+    def test_monetary_concept_carries_document_currency(self):
+        response = _llm_response(
+            {"concept": "capex_allowance_total_million", "value": 3620,
+             "unit": "million", "confidence": 0.95},
+            document_currency="GBP",
+        )
+        r = _pipeline().parse_response(response, SAMPLE_CONTEXT)[0]
+        assert r.payload["currency"] == "GBP"
+        assert r.payload["value"] == 3620.0
+
+    def test_monetary_concept_dropped_when_currency_missing(self):
+        """A capex figure without a currency is ambiguous — refuse to persist."""
+        response = _llm_response(
+            {"concept": "capex_allowance_total_million", "value": 3620,
+             "unit": "million", "confidence": 0.95},
+            document_currency=None,
+        )
+        assert _pipeline().parse_response(response, SAMPLE_CONTEXT) == []
+
+    def test_non_monetary_concept_currency_is_null(self):
+        """WACC and pax counts don't need currency — leave null in payload."""
+        response = _llm_response(
+            {"concept": "allowed_wacc_vanilla_pct", "value": 3.18,
+             "unit": "percent", "confidence": 0.95},
+            document_currency="GBP",
+        )
+        r = _pipeline().parse_response(response, SAMPLE_CONTEXT)[0]
+        assert r.payload["currency"] is None
+
+    def test_eur_document_currency_propagates(self):
+        """AENA DORA II is in EUR; that must flow into payload."""
+        response = _llm_response(
+            {"concept": "regulated_asset_base_opening_million", "value": 9858.9,
+             "unit": "million", "confidence": 0.95},
+            document_currency="EUR",
+        )
+        r = _pipeline().parse_response(response, SAMPLE_CONTEXT)[0]
+        assert r.payload["currency"] == "EUR"
+
+    def test_currency_uppercased_and_trimmed(self):
+        """Robust against 'eur', ' GBP ', etc. — normalise to upper/strip."""
+        response = _llm_response(
+            {"concept": "capex_allowance_total_million", "value": 100,
+             "unit": "million", "confidence": 0.95},
+            document_currency="  eur  ",
+        )
+        r = _pipeline().parse_response(response, SAMPLE_CONTEXT)[0]
+        assert r.payload["currency"] == "EUR"

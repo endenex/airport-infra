@@ -68,11 +68,11 @@ def lhr(api_db):
 def lhr_with_h7(api_db, lhr):
     """LHR seeded with the H7 CONCESSION records (the real H7 figures)."""
     # H7 covers 2022-01-01 → 2026-12-31, total capex £3,620M
-    _make_record(api_db, lhr.id, "capex_allowance_total_gbp_million", 3620.0,
+    _make_record(api_db, lhr.id, "capex_allowance_total_million", 3620.0,
                  date(2022, 1, 1), date(2026, 12, 31))
     # Annual capex profile
     for year, capex in [(2022, 367), (2023, 567), (2024, 703), (2025, 1017), (2026, 967)]:
-        _make_record(api_db, lhr.id, "forecast_capex_gbp_million", float(capex),
+        _make_record(api_db, lhr.id, "forecast_capex_million", float(capex),
                      date(year, 1, 1), date(year, 12, 31))
     api_db.commit()
     return lhr

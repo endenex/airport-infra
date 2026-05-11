@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # Stable concept keys. These live in DataRecord.payload.concept; downstream
 # queries depend on them. Keep terse; don't rename.
 #
+# v1.1 (currency-agnostic): concept names no longer encode currency. Use
+# the per-record `currency` field in payload (ISO 4217: GBP, EUR, USD,
+# etc.). Monetary concepts use "_million" suffix; per-pax yields drop the
+# currency suffix.
+#
 # Period semantics:
 #   - "period_scope" = "regulatory_period"   → record covers full reg period
 #                                              (e.g. H7: 2022-2026)
@@ -38,14 +43,25 @@ CONCESSION_CONCEPTS = {
     "allowed_wacc_real_pretax_pct": "regulatory_period",
     "allowed_wacc_nominal_pretax_pct": "regulatory_period",
     "allowed_wacc_vanilla_pct": "regulatory_period",
-    "regulated_asset_base_opening_gbp_million": "regulatory_period",
-    "regulated_asset_base_closing_gbp_million": "regulatory_period",
-    "capex_allowance_total_gbp_million": "regulatory_period",
+    "regulated_asset_base_opening_million": "regulatory_period",
+    "regulated_asset_base_closing_million": "regulatory_period",
+    "capex_allowance_total_million": "regulatory_period",
     # Annual (one record per regulatory year)
     "forecast_passengers_pax": "annual",
-    "allowed_yield_per_pax_gbp": "annual",
-    "forecast_capex_gbp_million": "annual",
-    "forecast_opex_gbp_million": "annual",
+    "allowed_yield_per_pax": "annual",
+    "forecast_capex_million": "annual",
+    "forecast_opex_million": "annual",
+}
+
+# Concepts that carry a monetary value (currency is required for these).
+# Non-monetary concepts (WACC pct, pax count) get currency=None in payload.
+_MONETARY_CONCEPTS = {
+    "regulated_asset_base_opening_million",
+    "regulated_asset_base_closing_million",
+    "capex_allowance_total_million",
+    "allowed_yield_per_pax",
+    "forecast_capex_million",
+    "forecast_opex_million",
 }
 
 
@@ -53,11 +69,12 @@ SYSTEM_PROMPT = """You are extracting structured regulatory-economics numbers fr
 
 Return ONLY a JSON object (no prose, no markdown fences) with this exact schema:
 {
+  "document_currency": "GBP" | "EUR" | "USD" | "CHF" | "JPY" | "<ISO 4217 code>",
   "extractions": [
     {
       "concept": "<one of the allowed concepts below>",
       "value": <number — see units below>,
-      "unit": "percent" | "GBP_million" | "GBP_per_pax" | "passengers",
+      "unit": "percent" | "million" | "per_pax" | "passengers",
       "period_start": "YYYY-MM-DD" | null,
       "period_end": "YYYY-MM-DD",
       "confidence": <float 0.0-1.0>,
@@ -66,6 +83,15 @@ Return ONLY a JSON object (no prose, no markdown fences) with this exact schema:
   ]
 }
 
+Currency rules:
+- document_currency: the ISO 4217 code for the document's monetary values.
+  UK CAA decisions → "GBP". AENA / ADP / EU regulators → "EUR".
+  Swiss → "CHF". Etc. This applies to ALL monetary concepts in the
+  extraction. Do not convert across currencies.
+- For percent concepts (WACC variants) and passenger counts, currency
+  is irrelevant — but document_currency still must be set based on the
+  document's overall monetary content.
+
 Allowed concepts (period_scope shown — leave period_start null only when
 the value covers the entire regulatory period as a single figure):
 
@@ -73,21 +99,20 @@ the value covers the entire regulatory period as a single figure):
     allowed_wacc_real_pretax_pct                   unit "percent"
     allowed_wacc_nominal_pretax_pct                unit "percent"
     allowed_wacc_vanilla_pct                       unit "percent"
-    regulated_asset_base_opening_gbp_million       unit "GBP_million"  (start of period)
-    regulated_asset_base_closing_gbp_million       unit "GBP_million"  (end of period)
-    capex_allowance_total_gbp_million              unit "GBP_million"  (cumulative over period)
+    regulated_asset_base_opening_million           unit "million"  (start of period)
+    regulated_asset_base_closing_million           unit "million"  (end of period)
+    capex_allowance_total_million                  unit "million"  (cumulative over period)
 
   Annual (one record per regulatory year — set period_start and period_end to that year):
     forecast_passengers_pax                        unit "passengers"
-    allowed_yield_per_pax_gbp                      unit "GBP_per_pax"
-    forecast_capex_gbp_million                     unit "GBP_million"
-    forecast_opex_gbp_million                      unit "GBP_million"
+    allowed_yield_per_pax                          unit "per_pax"
+    forecast_capex_million                         unit "million"
+    forecast_opex_million                          unit "million"
 
 Rules:
 - Extract ONLY values that are explicitly stated in the document. Do not infer, estimate, or compute.
 - WACC variants are distinct concepts — do NOT merge "real" and "nominal", or "pre-tax" and "post-tax". If only one variant is given, emit only that one.
-- Currency: figures expressed in GBP only (millions). If the document is in another currency, skip — do not convert.
-- "GBP_million" means actual £ million (e.g. 17000 means £17 billion).
+- Monetary values are in millions of the document_currency (e.g. value=3620 with document_currency="GBP" means £3.62 billion).
 - For annual concepts: if the document presents a 5-year forecast table, emit ONE record per regulatory year.
 - For percent concepts: express as 0-100 (so 5.6% is value=5.6, not 0.056).
 - Confidence rubric:
@@ -103,7 +128,13 @@ Rules:
 class ConcessionExtractionPipeline(LLMPipelineBase):
     """Extracts regulatory-economics KPIs from a price-control decision document."""
 
-    prompt_version = "1.0"
+    # v1.1: removed currency hardcoding from concept names (e.g.
+    # capex_allowance_total_gbp_million → capex_allowance_total_million),
+    # added a per-record `currency` field. Same concept can now hold values
+    # from any regulator (CAA in GBP, AENA in EUR, ADP in EUR, etc.) without
+    # mislabeled units. Lifecycle calculator unaffected — percentages are
+    # currency-independent.
+    prompt_version = "1.1"
     record_type = "CONCESSION"
 
     def build_messages(self, document: str, context: dict) -> list[dict]:
@@ -140,6 +171,12 @@ class ConcessionExtractionPipeline(LLMPipelineBase):
         reg_start = context.get("regulatory_period_start")
         reg_end = context.get("regulatory_period_end")
 
+        # Document-level currency. Required for monetary concepts; tolerated
+        # null for purely percent / passenger-count documents.
+        document_currency = parsed.get("document_currency")
+        if isinstance(document_currency, str):
+            document_currency = document_currency.upper().strip() or None
+
         for item in parsed.get("extractions", []):
             concept = item.get("concept")
             if concept not in CONCESSION_CONCEPTS:
@@ -175,15 +212,25 @@ class ConcessionExtractionPipeline(LLMPipelineBase):
 
             entity_key = f"{entity_key_prefix}:{concept}:{period_end}"
 
+            # Currency: required for monetary concepts. If the LLM forgot
+            # to set document_currency for a monetary value, log and skip
+            # rather than persist an ambiguous figure.
+            is_monetary = concept in _MONETARY_CONCEPTS
+            if is_monetary and not document_currency:
+                logger.warning(
+                    "Dropping monetary concept %r — document_currency missing", concept
+                )
+                continue
+
             # payload holds identity-only fields.  Per-document metadata
-            # (regulator, framework) IS identity here — different frameworks
-            # for the same airport (H7 vs Q5+ vs H8) should produce distinct
-            # records, so they enter the hash.
+            # (regulator, framework, currency) IS identity here — the same
+            # numeric value with different currency is a different fact.
             payload = {
                 "entity_name": context.get("entity_name"),
                 "concept": concept,
                 "value": value,
                 "unit": item.get("unit"),
+                "currency": document_currency if is_monetary else None,
                 "regulator_name": regulator,
                 "regulatory_framework_name": framework,
             }
