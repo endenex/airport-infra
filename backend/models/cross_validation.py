@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.data_record import DataRecord
 
 
 class CrossValidation(Base):
@@ -35,12 +39,12 @@ class CrossValidation(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    primary_record: Mapped["DataRecord"] = relationship(  # noqa: F821
+    primary_record: Mapped["DataRecord"] = relationship(
         "DataRecord",
         foreign_keys=[primary_record_id],
         back_populates="cross_validations_primary",
     )
-    comparison_record: Mapped["DataRecord"] = relationship(  # noqa: F821
+    comparison_record: Mapped["DataRecord"] = relationship(
         "DataRecord",
         foreign_keys=[comparison_record_id],
     )

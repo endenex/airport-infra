@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.data_record import DataRecord
 
 
 class IngestionRun(Base):
@@ -28,6 +32,6 @@ class IngestionRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
 
-    data_records: Mapped[list["DataRecord"]] = relationship(  # noqa: F821
+    data_records: Mapped[list["DataRecord"]] = relationship(
         "DataRecord", back_populates="ingestion_run"
     )

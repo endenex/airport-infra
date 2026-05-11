@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.data_record import DataRecord
 
 
 class LLMExtraction(Base):
@@ -35,6 +39,6 @@ class LLMExtraction(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    data_record: Mapped["DataRecord"] = relationship(  # noqa: F821
+    data_record: Mapped["DataRecord"] = relationship(
         "DataRecord", back_populates="llm_extraction"
     )

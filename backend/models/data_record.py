@@ -1,11 +1,19 @@
 import uuid
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.airport import Airport
+    from backend.models.cross_validation import CrossValidation
+    from backend.models.ingestion_run import IngestionRun
+    from backend.models.llm_extraction import LLMExtraction
+    from backend.models.methodology_version import MethodologyVersion
 
 
 class DataRecord(Base):
@@ -57,19 +65,19 @@ class DataRecord(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    airport: Mapped["Airport | None"] = relationship(  # noqa: F821
+    airport: Mapped["Airport | None"] = relationship(
         "Airport", back_populates="data_records"
     )
-    methodology_version: Mapped["MethodologyVersion"] = relationship(  # noqa: F821
+    methodology_version: Mapped["MethodologyVersion"] = relationship(
         "MethodologyVersion", back_populates="data_records"
     )
-    ingestion_run: Mapped["IngestionRun | None"] = relationship(  # noqa: F821
+    ingestion_run: Mapped["IngestionRun | None"] = relationship(
         "IngestionRun", back_populates="data_records"
     )
-    llm_extraction: Mapped["LLMExtraction | None"] = relationship(  # noqa: F821
+    llm_extraction: Mapped["LLMExtraction | None"] = relationship(
         "LLMExtraction", back_populates="data_record", uselist=False
     )
-    cross_validations_primary: Mapped[list["CrossValidation"]] = relationship(  # noqa: F821
+    cross_validations_primary: Mapped[list["CrossValidation"]] = relationship(
         "CrossValidation",
         foreign_keys="CrossValidation.primary_record_id",
         back_populates="primary_record",

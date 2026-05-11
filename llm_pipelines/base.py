@@ -101,9 +101,15 @@ class LLMPipelineBase(ABC):
             response = self.client.messages.create(
                 model=settings.llm_extraction_model,
                 max_tokens=4096,
-                messages=messages,
+                messages=messages,  # type: ignore[arg-type]
             )
-            response_text = response.content[0].text
+            # Anthropic responses are a union of block types; we only consume text.
+            first_block = response.content[0]
+            response_text = getattr(first_block, "text", None)
+            if response_text is None:
+                raise RuntimeError(
+                    f"Expected a text content block, got {type(first_block).__name__}"
+                )
             result.records = self.parse_response(response_text, context)
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"

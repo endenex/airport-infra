@@ -1,10 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Float, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.data_record import DataRecord
 
 
 class Airport(Base):
@@ -35,6 +39,6 @@ class Airport(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    data_records: Mapped[list["DataRecord"]] = relationship(  # noqa: F821
+    data_records: Mapped[list["DataRecord"]] = relationship(
         "DataRecord", back_populates="airport"
     )
