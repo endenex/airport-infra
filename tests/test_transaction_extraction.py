@@ -184,7 +184,7 @@ class TestPersist:
         assert row.source_url == "https://example.com/vinci.html"
         assert row.methodology_version_id is not None
         # Notes carry prompt_version + overall_confidence + evidence_summary
-        assert "v1.1" in (row.notes or "")
+        assert "v1.2" in (row.notes or "")
         assert "0.92" in (row.notes or "")
         assert "Edinburgh" in (row.notes or "")
 
@@ -211,9 +211,9 @@ class TestPersist:
         # And nobody is in buyer_entities with GIP's name
         assert not any("GIP" in b["name"] for b in row.buyer_entities or [])
 
-    def test_prompt_version_is_v1_1(self):
-        """Bump bumped — older v1.0 records are still in the DB but new ones say 1.1."""
-        assert TransactionExtractionPipeline.prompt_version == "1.1"
+    def test_prompt_version_stamped_in_notes(self):
+        """Bump bumped — older records stay tagged with their producing version."""
+        assert TransactionExtractionPipeline.prompt_version == "1.2"
 
     def test_falls_back_to_rumored_on_invalid_state(self, api_db, edi):
         """LLM hallucinating an out-of-lexicon state must not crash persistence."""

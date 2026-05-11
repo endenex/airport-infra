@@ -53,7 +53,7 @@ Return ONLY a JSON object (no prose, no markdown fences) with this exact schema:
   "transaction": {
     "asset_name": "<concise human-readable name of what's being transacted>",
     "iata_hint": "<3-letter IATA code if the document mentions one>" | null,
-    "state": "closed" | "abandoned" | "pulled" | "bid_lost" | "postponed" | "rumored",
+    "state": "closed" | "signed" | "abandoned" | "pulled" | "bid_lost" | "postponed" | "rumored",
     "transaction_type": "acquisition" | "divestment" | "refinancing" | "ipo" | "concession_award" | "minority_stake" | "secondary_buyout" | "other",
     "announce_date": "YYYY-MM-DD" | null,
     "signing_date": "YYYY-MM-DD" | null,
@@ -103,7 +103,17 @@ Return ONLY a JSON object (no prose, no markdown fences) with this exact schema:
 
 Rules — these are non-negotiable:
 
-1. **State of the transaction.** "closed" only if the document confirms completion (signed and closed). "abandoned"/"pulled"/"postponed" only with explicit confirmation. "rumored" if the entire deal is press-leak only.
+1. **State of the transaction — pick the most precise value.**
+
+   - "closed": the document confirms COMPLETION ("completed", "closed", "finalised the acquisition", "transaction has now closed"). Both signing AND closing have happened.
+   - "signed": the document confirms a definitive agreement has been SIGNED but completion is still pending ("signed an agreement to acquire", "agreed to acquire", "entered into a binding agreement"). Often these documents include phrasing like "subject to regulatory approval" or "expected to complete in Q3 2024".
+   - "abandoned": the document confirms the process was abandoned.
+   - "pulled": the seller withdrew the asset from sale.
+   - "postponed": the deal was paused but not abandoned.
+   - "bid_lost": from the perspective of a losing party in a process that closed for someone else.
+   - "rumored": the entire deal is press-leak only — no formal disclosure of signing or completion.
+
+   Critical: do NOT pick "closed" for a signed-but-not-yet-completed announcement just because no other state seems to fit. If the document says "agreed" or "signed" but never says "completed"/"closed"/"finalised", the correct state is "signed". Use signing_date for when the agreement was signed; leave close_date null until completion is confirmed.
 
 2. **Party attribution — the stake-change rule (this is the most important rule).**
 
@@ -201,10 +211,14 @@ def _coerce_party_list(raw: list | None) -> list[dict] | None:
 
 
 class TransactionExtractionPipeline:
-    # v1.1: tightened buyer/seller semantics via explicit "stake-change rule",
-    # added continuing_holders bucket so existing co-investors aren't
-    # mis-classified as buyers. See commit log + Edinburgh re-run for context.
-    prompt_version = "1.1"
+    # v1.1: tightened buyer/seller semantics ("stake-change rule"), added
+    #       continuing_holders bucket so existing co-investors aren't
+    #       mis-classified as buyers.
+    # v1.2: added "signed" state for definitive-agreement-signed-but-not-
+    #       yet-completed announcements. v1.1 was forcing these into "closed",
+    #       which conflated signing dates with close dates. Now the prompt
+    #       explicitly distinguishes "agreement signed" from "deal completed".
+    prompt_version = "1.2"
     temperature = 0.0
     max_tokens = 4096
 

@@ -31,7 +31,15 @@ if TYPE_CHECKING:
 # State + transaction_type are stored as strings (not enums) so the schema
 # can grow without a migration each time the lexicon expands. The canonical
 # values are documented here and enforced at the Pydantic schema layer.
-VALID_STATES = {"closed", "abandoned", "pulled", "bid_lost", "postponed", "rumored"}
+#
+# State progression (typical deal lifecycle):
+#   rumored → signed → closed
+#                   ↘ postponed → (signed|abandoned)
+#                   ↘ pulled
+#                   ↘ abandoned
+# bid_lost is from the perspective of a losing party in a process that
+# eventually closed for someone else.
+VALID_STATES = {"closed", "signed", "abandoned", "pulled", "bid_lost", "postponed", "rumored"}
 VALID_TRANSACTION_TYPES = {
     "acquisition", "divestment", "refinancing", "ipo",
     "concession_award", "minority_stake", "secondary_buyout", "other",

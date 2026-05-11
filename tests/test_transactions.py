@@ -52,6 +52,14 @@ class TestVocabularies:
         for kind in ("closed", "abandoned", "pulled", "bid_lost", "postponed"):
             assert kind in VALID_STATES
 
+    def test_signed_state_present(self):
+        """
+        v1.2 adds 'signed' for definitive-agreement-signed-but-not-yet-
+        completed announcements. v1.1 forced these into 'closed', which
+        conflated signing dates with close dates.
+        """
+        assert "signed" in VALID_STATES
+
     def test_transaction_types_cover_main_axes(self):
         for kind in ("acquisition", "divestment", "refinancing"):
             assert kind in VALID_TRANSACTION_TYPES
