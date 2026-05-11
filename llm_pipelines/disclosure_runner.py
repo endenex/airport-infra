@@ -112,6 +112,13 @@ UK_DISCLOSURES: list[Disclosure] = [
 # Regulatory price-control decisions. These are PDF-only by definition (no
 # regulator publishes a structured RAB/WACC API), so this is the appropriate
 # place for LLM extraction per the source-precedence rule.
+#
+# Network operators (AENA, ADP) regulate at the portfolio level — DORA II
+# governs all ~50 AENA airports collectively, CRE governs CDG + ORY + LBG
+# together. We attribute the regulatory record to the operator's hub airport
+# (MAD for AENA, CDG for ADP) and document the choice; future work should
+# add a proper portfolio-to-airport mapping so the same decision shows up
+# on every airport in the network.
 REGULATORY_DISCLOSURES: list[Disclosure] = [
     Disclosure(
         iata="LHR",
@@ -126,6 +133,23 @@ REGULATORY_DISCLOSURES: list[Disclosure] = [
         regulatory_period_start="2022-01-01",
         regulatory_period_end="2026-12-31",
     ),
+    Disclosure(
+        iata="MAD",
+        entity_name="AENA (DORA II — Spain airport network regulation)",
+        key="aena_dora_ii_2022_2026",
+        url="https://www.transportes.gob.es/recursos_mfom/dora_2022-2026.pdf",
+        reporting_period_end="2021-09-28",  # Council of Ministers approval date
+        kind="regulatory",
+        source_id="aena_dora",
+        regulator_name="Ministerio de Transportes y Movilidad Sostenible (Spain)",
+        regulatory_framework_name="DORA II",
+        regulatory_period_start="2022-01-01",
+        regulatory_period_end="2026-12-31",
+    ),
+    # ADP CRE 4 (2027-2034) is in proposal phase and no clean PDF URL is
+    # publicly disseminated yet. Re-add this entry when the ART/État sign
+    # the final document. The previous CRE 3 (2016-2020) is concluded and
+    # historical; not useful for current-period lifecycle calculations.
 ]
 
 # Anthropic Haiku 4.5 free-tier limit is 50K input tokens/min. At ~4 chars

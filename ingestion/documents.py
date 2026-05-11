@@ -37,7 +37,12 @@ def fetch_and_store(
     source_id: str,
     *,
     timeout: float = 120.0,
-    user_agent: str = "airport-infra-platform alex@endenex.com",
+    # Mozilla-compatible preamble so gov / regulator sites (e.g. transportes.gob.es)
+    # don't return 403 to UAs without it. Identification suffix still tells
+    # the operator who we are.
+    user_agent: str = (
+        "Mozilla/5.0 (compatible; airport-infra-platform/1.0; alex@endenex.com)"
+    ),
 ) -> FetchedDocument:
     """
     Download a document, content-hash it, upload to R2 if new.
