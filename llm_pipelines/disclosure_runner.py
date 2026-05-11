@@ -36,8 +36,15 @@ class Disclosure:
     key: str  # stable doc identifier, used in entity_key_prefix
     url: str
     reporting_period_end: str  # YYYY-MM-DD
-    kind: str  # "sustainability" | "annual_report" | "monitoring"
+    kind: str  # "sustainability" | "annual_report" | "monitoring" | "regulatory"
     source_id: str  # data_records.source_id namespace (e.g. "heathrow_direct")
+    # Optional regulator metadata — set for kind="regulatory" disclosures.
+    # These travel through context so the pipeline can use them in the prompt
+    # and stamp them onto extracted records without re-asking the LLM.
+    regulator_name: str | None = None
+    regulatory_framework_name: str | None = None
+    regulatory_period_start: str | None = None  # YYYY-MM-DD
+    regulatory_period_end: str | None = None    # YYYY-MM-DD
 
 
 # Single authoritative registry of UK airport disclosure documents.
@@ -98,6 +105,26 @@ UK_DISCLOSURES: list[Disclosure] = [
         reporting_period_end="2024-12-31",
         kind="sustainability",
         source_id="birmingham_direct",
+    ),
+]
+
+
+# Regulatory price-control decisions. These are PDF-only by definition (no
+# regulator publishes a structured RAB/WACC API), so this is the appropriate
+# place for LLM extraction per the source-precedence rule.
+REGULATORY_DISCLOSURES: list[Disclosure] = [
+    Disclosure(
+        iata="LHR",
+        entity_name="Heathrow Airport Limited",
+        key="caa_h7_final_decision_summary",
+        url="https://www.caa.co.uk/publication/download/20187",  # CAP2524A summary
+        reporting_period_end="2023-03-08",  # publication date as the "report period" anchor
+        kind="regulatory",
+        source_id="caa_h7",
+        regulator_name="UK Civil Aviation Authority",
+        regulatory_framework_name="H7",
+        regulatory_period_start="2022-01-01",
+        regulatory_period_end="2026-12-31",
     ),
 ]
 
@@ -163,6 +190,13 @@ def _run_one(
         "reporting_period_end": disclosure.reporting_period_end,
         "airport_id": airport_id,
     }
+    # Carry through optional regulator metadata when present — concession
+    # pipeline uses these to stamp records and to ground the LLM prompt.
+    for attr in ("regulator_name", "regulatory_framework_name",
+                 "regulatory_period_start", "regulatory_period_end"):
+        v = getattr(disclosure, attr, None)
+        if v is not None:
+            context[attr] = v
 
     result: ExtractionResult = pipeline.extract(text, context)
     if result.errors:
