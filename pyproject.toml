@@ -26,6 +26,7 @@ dependencies = [
     "pyreadstat>=1.2.7",   # World Bank PPI Stata files
     "openpyxl>=3.1.5",     # SBTi XLSX, ESMA XBRL packages
     "lxml>=5.3.0",         # XBRL XML parsing
+    "pypdf>=5.0.0",        # PDF text extraction for LLM pipelines
     # Config
     "python-dotenv>=1.0.1",
     # Document storage (Cloudflare R2 via S3-compatible API)

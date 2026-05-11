@@ -1,4 +1,15 @@
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Pydantic-settings v2 doesn't always pick up .env reliably depending on CWD
+# resolution. Load it via python-dotenv first so os.environ is populated
+# before Settings() reads it.
+#
+# override=True so that empty-string env vars (e.g. shell init scripts that
+# pre-declare ANTHROPIC_API_KEY="") don't shadow real values from .env.
+# Safe because .env is gitignored — it doesn't exist in CI/production where
+# env vars are set authoritatively.
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):

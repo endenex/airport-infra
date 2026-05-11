@@ -66,6 +66,10 @@ class LLMPipelineBase(ABC):
     """
 
     prompt_version: str  # e.g. "1.0" — bump when prompt changes materially
+    # Extraction tasks should be deterministic so re-runs produce the same
+    # payload hash → same record ID → idempotent.
+    temperature: float = 0.0
+    max_tokens: int = 4096
 
     def __init__(self, client: anthropic.Anthropic | None = None) -> None:
         self.client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -100,7 +104,8 @@ class LLMPipelineBase(ABC):
             messages = self.build_messages(document, context)
             response = self.client.messages.create(
                 model=settings.llm_extraction_model,
-                max_tokens=4096,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
                 messages=messages,  # type: ignore[arg-type]
             )
             # Anthropic responses are a union of block types; we only consume text.
