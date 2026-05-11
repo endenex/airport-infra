@@ -1,0 +1,19 @@
+{
+  "source_id": "eurostat_avia_paoa",
+  "name": "Eurostat avia_paoa SDMX 2.1 API",
+  "description": "Monthly passenger, movement, and cargo data for all European airports. 60,877 rows per monthly query.",
+  "endpoint": "https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/data/avia_paoa",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "tsv_compressed",
+  "query_pattern": "/.....?startPeriod={YYYY-MM}&endPeriod={YYYY-MM}&format=TSV&compress=true",
+  "refresh_cadence": "monthly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.90,
+  "workaround_paths": [],
+  "known_issues": [
+    "Queries spanning >12 months may trigger extraction-too-big errors. Chunk by month."
+  ],
+  "notes": "Five dots (.....): all dimensions wildcarded. Returns TSV with gzip compression. Decompress before parsing."
+}

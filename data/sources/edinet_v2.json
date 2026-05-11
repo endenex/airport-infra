@@ -1,0 +1,20 @@
+{
+  "source_id": "edinet_v2",
+  "name": "EDINET v2 API (Japan FSA)",
+  "description": "Japanese TSE-listed airport operators' financial filings. Covers Narita, Kansai, and other Japanese airport operators.",
+  "endpoint": "https://api.edinet-fsa.go.jp/api/v2/",
+  "documents_endpoint": "https://api.edinet-fsa.go.jp/api/v2/documents.json",
+  "auth_required": true,
+  "auth_type": "subscription_key_header",
+  "auth_env_var": "EDINET_SUBSCRIPTION_KEY",
+  "required_headers": {
+    "Ocp-Apim-Subscription-Key": "{EDINET_SUBSCRIPTION_KEY}"
+  },
+  "format": "json",
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.90,
+  "workaround_paths": [],
+  "registration_notes": "Free key from EDINET developer portal at disclosure2.edinet-fsa.go.jp. Registration page in Japanese. MFA required. Disable popup blocking before registering — the key display screen requires a redirect. Video walkthrough: https://youtu.be/2ao-CZS-BtQ?t=63",
+  "notes": "Module scaffolded. Ingestor activates once EDINET_SUBSCRIPTION_KEY is set in .env. Not blocking Week 1-2 work."
+}

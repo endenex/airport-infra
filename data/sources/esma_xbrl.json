@@ -1,0 +1,25 @@
+{
+  "source_id": "esma_xbrl",
+  "name": "ESMA XBRL filings.xbrl.org JSON:API",
+  "description": "EU-listed airport financial filings via ESMA's XBRL JSON:API. Covers AENA, AdP, Flughafen Wien, Toscana Aeroporti, Bologna, Copenhagen, Malta.",
+  "endpoint": "https://filings.xbrl.org/api/filings",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "json_api",
+  "query_pattern": "?filter[entity.identifier]={LEI}&include=entity",
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [],
+  "known_entities": {
+    "AENA": "959800R7QMXKF0NFMT29",
+    "ADP": "969500PJMBSFHYC37989",
+    "FLUGHAFEN_WIEN": "549300FQ2ILBH7DJ6I45",
+    "TOSCANA_AEROPORTI": "8156005DBE6CA468DD09",
+    "AEROPORTO_BOLOGNA": "8156004CC118B7885065",
+    "COPENHAGEN_AIRPORTS": "549300Z01GJGM7D3HQ74",
+    "MALTA_INTERNATIONAL": "2138008EKXNMKZRXCT63"
+  },
+  "notes": "Filter by entity LEI using filter[entity.identifier]. Include entity in response for name resolution."
+}

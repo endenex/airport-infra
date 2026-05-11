@@ -1,0 +1,23 @@
+{
+  "source_id": "schiphol_contentful",
+  "name": "Schiphol Group Annual Reports (Contentful CDN workaround)",
+  "description": "Royal Schiphol Group annual reports via Contentful CDN. Schiphol.nl is Cloudflare-protected; assets.ctfassets.net CDN backing it is publicly accessible.",
+  "base_endpoint": "https://assets.ctfassets.net/biom0eqyyi6b",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "pdf",
+  "refresh_cadence": "annual",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [
+    {
+      "description": "Contentful CDN backing schiphol.nl (bypasses Cloudflare)",
+      "url_pattern": "https://assets.ctfassets.net/biom0eqyyi6b/{contentful_id}/{hash}/Schiphol_Group_Annual_Report_{year}.pdf",
+      "verified_year": 2022,
+      "verified_size_mb": 8.8
+    }
+  ],
+  "known_issues": ["Do not use Playwright or browser automation. Contentful CDN workaround is sufficient."],
+  "notes": "Contentful content IDs and hashes change per publication. Enumerate via Contentful delivery API or by inspecting schiphol.nl network requests to find current year IDs."
+}

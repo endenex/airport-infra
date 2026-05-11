@@ -1,0 +1,23 @@
+{
+  "source_id": "fraport_direct",
+  "name": "Fraport Annual Reports (AEM workaround)",
+  "description": "Fraport AG annual reports via AEM (Adobe Experience Manager) URL pattern. Main site is Cloudflare-protected; AEM renditions path bypasses it.",
+  "base_endpoint": "https://www.fraport.com/content/dam",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "pdf",
+  "refresh_cadence": "annual",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [
+    {
+      "description": "AEM JCR content rendition path (bypasses Cloudflare)",
+      "url_pattern": "https://www.fraport.com/content/dam/.../Annual%20Report%20{year}.pdf/_jcr_content/renditions/original.media_file.download_attachment.file/Annual%20Report%20{year}",
+      "verified_year": 2023,
+      "verified_size_mb": 13.8
+    }
+  ],
+  "known_issues": ["Do not use Playwright or browser automation. AEM workaround is sufficient."],
+  "notes": "AEM workaround verified working. AR 2023 confirmed 13.8MB download. Update URL pattern for each year as released."
+}

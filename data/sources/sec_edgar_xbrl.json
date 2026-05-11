@@ -1,0 +1,29 @@
+{
+  "source_id": "sec_edgar_xbrl",
+  "name": "SEC EDGAR Company Facts XBRL API",
+  "description": "US/ADR-listed airport operators' financial data via SEC EDGAR XBRL structured data. No auth required — User-Agent header only.",
+  "endpoint": "https://data.sec.gov/api/xbrl/companyfacts/CIK{padded_cik}.json",
+  "submissions_endpoint": "https://data.sec.gov/submissions/CIK{padded_cik}.json",
+  "auth_required": false,
+  "auth_type": "user_agent_header",
+  "auth_env_var": null,
+  "required_headers": {
+    "User-Agent": "airport-infra-platform contact@yourdomain.com"
+  },
+  "format": "json",
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [],
+  "rate_limit_note": "Throttle to ~10 req/s max. Polite User-Agent required.",
+  "known_entities": {
+    "OMA_CENTRAL_NORTH": { "cik": "0001378239", "padded": "0001378239" },
+    "GAP_PACIFIC": { "cik": "0001347557", "padded": "0001347557" },
+    "ASUR_SOUTHEAST": { "cik": "0001123452", "padded": "0001123452" },
+    "CAAP_CORPORACION_AMERICA": {
+      "cik": "0001717393",
+      "padded": "0001717393",
+      "note": "Covers 50+ airports across Argentina, Brazil, Uruguay, Ecuador, Italy, Armenia. 352 IFRS concepts."
+    }
+  }
+}

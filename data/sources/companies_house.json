@@ -1,0 +1,27 @@
+{
+  "source_id": "companies_house",
+  "name": "Companies House UK API",
+  "description": "UK corporate registry. API requires free key registration. Public profile accessible without auth as fallback.",
+  "endpoint": "https://api.company-information.service.gov.uk/",
+  "public_profile_endpoint": "https://find-and-update.company-information.service.gov.uk/company/{number}",
+  "auth_required": true,
+  "auth_type": "api_key_basic_auth",
+  "auth_env_var": "COMPANIES_HOUSE_API_KEY",
+  "format": "json",
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.80,
+  "workaround_paths": [
+    {
+      "description": "Public profile HTML scrape (no auth)",
+      "endpoint": "https://find-and-update.company-information.service.gov.uk/company/{number}",
+      "note": "Less structured than API but accessible without key"
+    }
+  ],
+  "known_entities": {
+    "HEATHROW_AIRPORT_LIMITED": "01991017",
+    "HEATHROW_AIRPORT_HOLDINGS": "05757208",
+    "GATWICK_AIRPORT_LIMITED": "01935300"
+  },
+  "notes": "Register free at developer.company-information.service.gov.uk. Used for UK airport ownership chain and PSC data. Target: top 50 UK private airport entities by Month 6 gate."
+}

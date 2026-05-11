@@ -1,0 +1,19 @@
+{
+  "source_id": "sbti_targets",
+  "name": "Science Based Targets initiative (SBTi) targets database",
+  "description": "39,274 companies' science-based climate targets. 43 airport-related entries with full target detail. 28 columns including target year, scope, status, validation date.",
+  "endpoint": "https://files.sciencebasedtargets.org/production/files/targets-excel.xlsx",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "xlsx",
+  "file_size_mb": 5.4,
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.88,
+  "workaround_paths": [],
+  "filter": {
+    "sector_contains": ["Airport", "Aviation", "Transport"]
+  },
+  "notes": "Download full XLSX, filter to airport-related entries. 43 known airport entries as of last check. Part of D lens climate capital tracking."
+}

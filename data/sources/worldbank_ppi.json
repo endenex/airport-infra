@@ -1,0 +1,20 @@
+{
+  "source_id": "worldbank_ppi",
+  "name": "World Bank Private Participation in Infrastructure (PPI) Database",
+  "description": "16,051 projects total, 201 airport concessions in 30+ emerging market countries. Rich descriptive fields (mean 1,564 chars/project) with sponsors, concession terms, financial structure.",
+  "endpoint": "https://datacatalogapi.worldbank.org/ddhxext/ResourceDownload?resource_unique_id=DR0051370",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "stata_dta",
+  "file_size_mb": 95,
+  "refresh_cadence": "annual",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.85,
+  "workaround_paths": [],
+  "filter": {
+    "sector": "Airport"
+  },
+  "top_countries": ["Brazil", "China", "Mexico", "Turkey", "Colombia", "India", "Russia", "Argentina", "Egypt", "Peru", "Cambodia", "Armenia", "Philippines", "Indonesia"],
+  "notes": "95MB Stata .dta file. Use pyreadstat to load. Filter sector='Airport' for 201 concession records. Rich narrative descriptions ideal for LLM concession terms extraction pipeline (first concrete LLM pipeline per Appendix C Week 3)."
+}

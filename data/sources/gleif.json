@@ -1,0 +1,16 @@
+{
+  "source_id": "gleif",
+  "name": "GLEIF LEI API",
+  "description": "Global Legal Entity Identifiers. Free, no auth. Identity resolution across jurisdictions. Parent relationships filed by ~30-40% of entities.",
+  "endpoint": "https://api.gleif.org/api/v1/lei-records",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "json_api",
+  "query_pattern": "?filter[entity.legalName]={name}",
+  "refresh_cadence": "quarterly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.95,
+  "workaround_paths": [],
+  "notes": "Use for cross-jurisdiction identity resolution. Useful when ESMA/EDGAR LEIs are known but need to resolve parent relationships. ~30-40% of entities file parent relationship data."
+}

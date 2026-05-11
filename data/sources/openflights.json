@@ -1,0 +1,17 @@
+{
+  "source_id": "openflights",
+  "name": "OpenFlights route data",
+  "description": "67,663 routes between 3,321 airports. Useful for connectivity analysis and peer-set construction.",
+  "endpoint": "https://raw.githubusercontent.com/jpatokal/openflights/master/data/routes.dat",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "csv_no_header",
+  "file_size_mb": 2.4,
+  "refresh_cadence": "monthly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.95,
+  "workaround_paths": [],
+  "columns": ["airline", "airline_id", "source_airport", "source_airport_id", "dest_airport", "dest_airport_id", "codeshare", "stops", "equipment"],
+  "notes": "No header row. airline_id and airport_id values cross-reference OpenFlights internal IDs, not IATA codes."
+}

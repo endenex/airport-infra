@@ -1,0 +1,16 @@
+{
+  "source_id": "ourairports",
+  "name": "OurAirports reference data CSV",
+  "description": "85,346 airports globally. 3,309 commercial with scheduled service. 99% with IATA/ICAO/Wikipedia crosswalk. Foundation for all airport entity resolution.",
+  "endpoint": "https://davidmegginson.github.io/ourairports-data/airports.csv",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "csv",
+  "file_size_mb": 12.6,
+  "refresh_cadence": "monthly",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.95,
+  "workaround_paths": [],
+  "notes": "First ingestor to run in Week 2. Populates the airports master table. All subsequent ingestors reference airport IDs from this table."
+}

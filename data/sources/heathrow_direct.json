@@ -1,0 +1,30 @@
+{
+  "source_id": "heathrow_direct",
+  "name": "Heathrow group direct PDF downloads",
+  "description": "Heathrow Airport Holdings (HAHL), Heathrow Finance, Heathrow SP Regulatory Accounts (CAA-mandated), Heathrow Funding.",
+  "base_endpoint": "https://www.heathrow.com/content/dam/heathrow/web/common/documents/company/investor/reports-and-presentations/annual-accounts",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "pdf",
+  "refresh_cadence": "annual",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [],
+  "known_documents": [
+    {
+      "entity": "HAHL",
+      "year": 2024,
+      "size_mb": 10.3,
+      "url_pattern": "{base_endpoint}/HAHL/Annual-Report-{year}.pdf"
+    },
+    {
+      "entity": "Heathrow SP Regulatory Accounts",
+      "year": 2023,
+      "size_mb": 1.1,
+      "note": "CAA-mandated. Key document for B lens RoRE validation.",
+      "url_pattern": "{base_endpoint}/heathrow-sp/Heathrow-SP-Regulatory-Accounts-{year}.pdf"
+    }
+  ],
+  "notes": "Direct from heathrow.com /content/dam/ paths. Use for LLM extraction of concession economics and regulatory return data. CAA regulatory accounts are the primary source for RoRE validation."
+}

@@ -1,0 +1,24 @@
+{
+  "source_id": "gatwick_direct",
+  "name": "Gatwick group direct PDF downloads",
+  "description": "Gatwick Airport Finance plc, Ivy Holdco, Gatwick Funding, Gatwick Airport Limited. 196+ PDFs verified accessible.",
+  "base_endpoint": "https://www.gatwickairport.com/on/demandware.static/-/Sites-Gatwick-Library/default",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "pdf",
+  "refresh_cadence": "annual",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.92,
+  "workaround_paths": [],
+  "known_documents": [
+    {
+      "entity": "Gatwick Airport Finance plc",
+      "year": 2023,
+      "size_mb": 2.8,
+      "pages": 152,
+      "url_pattern": "{base_endpoint}/dw{hash}/images/Corporate-PDFs/{path}.pdf"
+    }
+  ],
+  "notes": "URL pattern requires hash segment from demandware static paths. Enumerate available documents before building ingestor."
+}

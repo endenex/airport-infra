@@ -1,0 +1,16 @@
+{
+  "source_id": "eurocontrol_snapshots",
+  "name": "EUROCONTROL data snapshots",
+  "description": "Periodic structured data releases. Top 40 European airports peak days, structural metrics. Accumulated 8+ snapshots. ZIP archives containing PDF + XLSX.",
+  "endpoint": "https://www.eurocontrol.int/archive_download/all/node/{node_id}",
+  "auth_required": false,
+  "auth_type": null,
+  "auth_env_var": null,
+  "format": "zip_containing_xlsx_and_pdf",
+  "refresh_cadence": "ad_hoc",
+  "last_verified": "2025-01-01",
+  "confidence_rating": 0.90,
+  "workaround_paths": [],
+  "known_node_ids": [],
+  "notes": "Node IDs must be enumerated manually by scanning EUROCONTROL website. Sample node 58 returned 272KB ZIP with PDF + structured XLSX. Add node IDs to known_node_ids as discovered."
+}
