@@ -26,6 +26,17 @@ class AirportRef(BaseModel):
     country_code: str | None
 
 
+class LifecyclePosition(BaseModel):
+    """Concession Lifecycle Position metadata (Appendix D Layer α)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stage: str | None  # "early" | "mid" | "late" | "indeterminate"
+    methodology_version: str | None  # e.g. "1.1.0"
+    computed_at: datetime | None
+    inputs: dict[str, Any] | None
+
+
 class Airport(AirportRef):
     """Full airport row."""
 
@@ -43,6 +54,7 @@ class AirportSummary(Airport):
 
     records_total: int
     records_by_type: dict[str, int]
+    lifecycle: LifecyclePosition | None
 
 
 class DataRecord(BaseModel):

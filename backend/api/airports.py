@@ -8,7 +8,7 @@ from backend.api import schemas
 from backend.api.deps import Pagination, pagination
 from backend.db.connection import get_db
 from backend.models import Airport as AirportModel
-from backend.models import DataRecord
+from backend.models import DataRecord, MethodologyVersion
 
 router = APIRouter(prefix="/airports", tags=["airports"])
 
@@ -70,8 +70,23 @@ def get_airport(iata: str, db: Session = Depends(get_db)) -> schemas.AirportSumm
         )
     }
 
+    # Lifecycle Position (Appendix D Layer α) — null when not yet computed
+    lifecycle: schemas.LifecyclePosition | None = None
+    if airport.lifecycle_stage is not None:
+        mv_string: str | None = None
+        if airport.lifecycle_methodology_version_id is not None:
+            mv = db.get(MethodologyVersion, airport.lifecycle_methodology_version_id)
+            mv_string = mv.version_string if mv else None
+        lifecycle = schemas.LifecyclePosition(
+            stage=airport.lifecycle_stage,
+            methodology_version=mv_string,
+            computed_at=airport.lifecycle_computed_at,
+            inputs=airport.lifecycle_inputs,
+        )
+
     return schemas.AirportSummary(
         **schemas.Airport.model_validate(airport).model_dump(),
         records_total=sum(type_counts.values()),
         records_by_type=type_counts,
+        lifecycle=lifecycle,
     )
